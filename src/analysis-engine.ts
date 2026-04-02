@@ -176,43 +176,74 @@ export async function analyzeCode(params: {
   const config = parser.loadConfig();
   const userLevel = config.user_experience_level;
 
-  // 3. Create Anthropic client
-  const clientOptions: Record<string, string> = {};
-  if (auth.type === 'oauth') {
-    clientOptions.authToken = auth.token;
-  } else {
-    clientOptions.apiKey = auth.token;
-  }
-  const client = new Anthropic(clientOptions);
-
-  // 4. Get model from settings
+  // 3. Get model from settings
   const vscodeConfig = vscode.workspace.getConfiguration('decodie');
   const model = vscodeConfig.get<string>('model') || 'claude-sonnet-4-6';
 
-  // 5. Send request to Claude
+  // 4. Send request to Claude
   onProgress?.('Analyzing code with Claude...');
   const userMessage = `Analyze the following code from file \`${filePath}\`. The developer's experience level is "${userLevel}".\n\n\`\`\`\n${code}\n\`\`\``;
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
-  });
+  let responseText: string;
 
-  // 6. Parse response
-  onProgress?.('Processing results...');
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('No text response from Claude');
+  if (auth.type === 'apikey') {
+    // Use Anthropic SDK directly for API keys
+    const client = new Anthropic({ apiKey: auth.token });
+    const response = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('No text response from Claude');
+    }
+    responseText = textBlock.text;
+  } else {
+    // Use Claude Agent SDK for OAuth tokens (same as decodie-ui)
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    const fullPrompt = SYSTEM_PROMPT + '\n\n' + userMessage;
+
+    const conversation = query({
+      prompt: fullPrompt,
+      options: {
+        model,
+        maxTurns: 1,
+        env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: auth.token },
+      },
+    });
+
+    let collected = '';
+    for await (const message of conversation) {
+      if (message.type === 'assistant' && message.message) {
+        const content = message.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              collected += block.text;
+            }
+          }
+        }
+      }
+    }
+
+    if (!collected) {
+      throw new Error('No response from Claude');
+    }
+    responseText = collected;
   }
+
+  // 5. Parse response
+  onProgress?.('Processing results...');
 
   let parsed: { entries: RawAnalysisEntry[] };
   try {
-    parsed = JSON.parse(textBlock.text);
+    parsed = JSON.parse(responseText);
   } catch {
     // Try extracting JSON from markdown code fences
-    const match = textBlock.text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const match = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match) {
       parsed = JSON.parse(match[1]);
     } else {
