@@ -46,7 +46,7 @@ export function activate(context: vscode.ExtensionContext) {
       let code: string;
 
       if (uri) {
-        // Called from explorer context menu
+        // Called from explorer context menu — open the file so Current File tab works
         const absolutePath = uri.fsPath;
         try {
           code = fs.readFileSync(absolutePath, 'utf-8');
@@ -55,6 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
         filePath = path.relative(workspaceRoot, absolutePath);
+        await vscode.window.showTextDocument(uri, { preserveFocus: true });
       } else {
         // Called from command palette or editor context menu
         const editor = vscode.window.activeTextEditor;
