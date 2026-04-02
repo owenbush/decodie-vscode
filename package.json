@@ -91,7 +91,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@owenbush/decodie-core": "file:../decodie-core",
+    "@owenbush/decodie-core": "^0.1.0",
     "@anthropic-ai/sdk": "^0.52.0"
   },
   "devDependencies": {
