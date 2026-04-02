@@ -9,7 +9,13 @@
     "color": "#1f2831",
     "theme": "dark"
   },
-  "keywords": ["learning", "documentation", "code-analysis", "AI", "Claude"],
+  "keywords": [
+    "learning",
+    "documentation",
+    "code-analysis",
+    "AI",
+    "Claude"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/owenbush/decodie-vscode"
@@ -17,8 +23,13 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Education", "Other"],
-  "activationEvents": ["workspaceContains:.decodie/index.json"],
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:.decodie/index.json"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -91,15 +102,15 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@owenbush/decodie-core": "^0.1.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@anthropic-ai/sdk": "^0.52.0",
-    "@anthropic-ai/claude-agent-sdk": "^0.1.76"
+    "@owenbush/decodie-core": "^0.2.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.5.0",
-    "@vscode/vsce": "^3.0.0"
+    "typescript": "^5.5.0"
   }
 }
