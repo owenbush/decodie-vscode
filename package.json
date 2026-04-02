@@ -1,0 +1,95 @@
+{
+  "name": "decodie-vscode",
+  "displayName": "Decodie",
+  "description": "View and create Decodie learning entries directly in your editor",
+  "version": "0.1.0",
+  "publisher": "owenbush",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Education", "Other"],
+  "activationEvents": ["workspaceContains:.decodie/index.json"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "decodie",
+          "title": "Decodie",
+          "icon": "resources/decodie-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "decodie": [
+        {
+          "type": "webview",
+          "id": "decodie.sidebar",
+          "name": "Entries"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "decodie.analyzeSelection",
+        "title": "Decodie: Analyze Selection"
+      },
+      {
+        "command": "decodie.analyzeFile",
+        "title": "Decodie: Analyze File"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "decodie.analyzeSelection",
+          "when": "editorHasSelection",
+          "group": "decodie"
+        },
+        {
+          "command": "decodie.analyzeFile",
+          "group": "decodie"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "decodie.analyzeFile",
+          "group": "decodie"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Decodie",
+      "properties": {
+        "decodie.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key (fallback if .decodie/.env not found)"
+        },
+        "decodie.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "description": "Claude model to use for analysis"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@owenbush/decodie-core": "file:../decodie-core",
+    "@anthropic-ai/sdk": "^0.52.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.5.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}
