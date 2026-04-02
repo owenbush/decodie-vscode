@@ -106,6 +106,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public showAnalyzing(filePath: string, detail?: string): void {
+    // Send current data so All tab has entries while analyzing
+    if (this._view) {
+      try {
+        const index = this._parser.loadIndex();
+        const allEntries = index.entries.filter((e) => e.lifecycle === 'active');
+        this._view.webview.postMessage({
+          type: 'update',
+          currentFile: filePath,
+          currentFileEntries: [],
+          allEntries,
+        });
+      } catch {
+        // no index yet, that's fine
+      }
+    }
     this._view?.webview.postMessage({
       type: 'analyzing',
       filePath,
@@ -233,7 +248,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size, 13px);
+  font-size: 14px;
   color: var(--vscode-editor-foreground);
   background: var(--vscode-sideBar-background);
 }
@@ -247,20 +262,20 @@ body {
   z-index: 10;
 }
 .tab {
-  flex: 1; padding: 7px 2px; text-align: center;
-  font-size: 11px; font-weight: 500; cursor: pointer;
+  flex: 1; padding: 8px 2px; text-align: center;
+  font-size: 12px; font-weight: 500; cursor: pointer;
   border-bottom: 2px solid transparent; opacity: 0.6;
   transition: opacity 0.15s, border-color 0.15s;
 }
 .tab:hover { opacity: 0.9; }
 .tab.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder, #0786f7); }
-.tab .count { font-size: 9px; opacity: 0.5; }
+.tab .count { font-size: 10px; opacity: 0.5; }
 
 #content { padding: 8px; display: flex; flex-direction: column; gap: 10px; }
 
 /* States */
 .state-msg { text-align: center; opacity: 0.7; margin-top: 32px; padding: 0 12px; }
-.state-msg p { margin-top: 6px; font-size: 12px; }
+.state-msg p { margin-top: 6px; font-size: 13px; }
 .spinner {
   display: inline-block; width: 20px; height: 20px;
   border: 2px solid var(--vscode-editor-foreground);
@@ -301,10 +316,10 @@ body {
 }
 .entry-list-item:hover { border-color: var(--vscode-focusBorder, #0786f7); }
 .entry-list-header { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
-.entry-list-title { font-weight: 600; font-size: 12px; line-height: 1.3; }
-.entry-list-meta { font-size: 10px; opacity: 0.6; }
+.entry-list-title { font-weight: 600; font-size: 13px; line-height: 1.3; }
+.entry-list-meta { font-size: 12px; opacity: 0.6; }
 .entry-list-file {
-  font-size: 10px; opacity: 0.4;
+  font-size: 11px; opacity: 0.4;
   font-family: var(--vscode-editor-font-family, monospace); margin-top: 2px;
 }
 
@@ -323,7 +338,7 @@ body {
 .entry-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 
 .level-badge {
-  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
   padding: 2px 6px; border-radius: 3px; color: #000;
   white-space: nowrap; flex-shrink: 0;
 }
@@ -332,8 +347,8 @@ body {
 .level-advanced { background: #a78bfa; }
 .level-ecosystem { background: #fbbf24; }
 
-.entry-title { font-weight: 600; font-size: 13px; line-height: 1.3; }
-.entry-meta { font-size: 11px; opacity: 0.7; margin-bottom: 8px; }
+.entry-title { font-weight: 600; font-size: 14px; line-height: 1.3; }
+.entry-meta { font-size: 12px; opacity: 0.7; margin-bottom: 8px; }
 .decision-type { font-style: italic; }
 
 .entry-file-link {
@@ -367,28 +382,28 @@ body {
 
 details { margin: 4px 0; }
 details summary {
-  cursor: pointer; font-size: 12px; font-weight: 600;
+  cursor: pointer; font-size: 13px; font-weight: 600;
   padding: 4px 0; user-select: none; opacity: 0.9;
 }
 details summary:hover { opacity: 1; }
 details .section-content {
-  font-size: 12px; line-height: 1.5;
+  font-size: 13px; line-height: 1.5;
   padding: 4px 0 4px 12px;
   white-space: pre-wrap; word-wrap: break-word;
 }
 
 .key-concepts { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 4px 12px; }
 .concept-tag {
-  font-size: 10px; background: var(--vscode-badge-background);
+  font-size: 11px; background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground); padding: 2px 6px; border-radius: 3px;
 }
 
-.external-docs { margin-top: 6px; font-size: 12px; }
+.external-docs { margin-top: 6px; font-size: 13px; }
 .external-docs a { color: var(--vscode-textLink-foreground); text-decoration: none; }
 .external-docs a:hover { text-decoration: underline; }
 .doc-link { display: block; padding: 2px 0; }
 
-.ref-status { margin-top: 6px; font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
+.ref-status { margin-top: 6px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .ref-line { display: flex; align-items: center; gap: 6px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .status-resolved { background: #34d399; }
