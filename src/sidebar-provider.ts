@@ -56,6 +56,46 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._updateForActiveEditor();
   }
 
+  /** Refresh and show entries for a specific file (e.g. after analysis). */
+  public refreshForFile(relativeFilePath: string): void {
+    this._parser.invalidateCache();
+    if (!this._view) {
+      return;
+    }
+
+    const normalizedPath = relativeFilePath.split(path.sep).join('/');
+
+    try {
+      const index = this._parser.loadIndex();
+
+      const matchingEntries = index.entries.filter((entry) =>
+        entry.references.some((ref) => {
+          const normalizedRef = ref.file.split(path.sep).join('/');
+          return normalizedRef === normalizedPath;
+        }),
+      );
+
+      const fullEntries: FullEntry[] = matchingEntries.map((entry) => {
+        try {
+          return this._parser.getEntryWithContent(entry.id);
+        } catch {
+          return { ...entry, reference_resolutions: [] };
+        }
+      });
+
+      const allEntries = index.entries.filter((e) => e.lifecycle === 'active');
+
+      this._view.webview.postMessage({
+        type: 'update',
+        currentFile: normalizedPath,
+        currentFileEntries: fullEntries,
+        allEntries,
+      });
+    } catch {
+      this._updateForActiveEditor();
+    }
+  }
+
   public showAnalyzing(filePath: string, detail?: string): void {
     this._view?.webview.postMessage({
       type: 'analyzing',

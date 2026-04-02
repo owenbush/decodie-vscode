@@ -92,7 +92,7 @@ async function runAnalysis(code: string, filePath: string, workspaceRoot: string
     });
 
     vscode.window.showInformationMessage(`Decodie: Created ${entries.length} entries`);
-    sidebarProvider.refresh();
+    sidebarProvider.refreshForFile(filePath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof Error && err.stack) {
