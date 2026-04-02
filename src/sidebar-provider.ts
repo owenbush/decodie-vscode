@@ -606,7 +606,7 @@ function highlight(code) {
   // Types (PascalCase)
   h = h.replace(new RegExp(B + '([A-Z][a-zA-Z0-9]+)' + B, 'g'), TY);
   // Function calls
-  h = h.replace(new RegExp(B + '([a-zA-Z_]' + W + '*)' + S + '*(?=\\()', 'g'), FN);
+  h = h.replace(new RegExp(B + '([a-zA-Z_]' + W + '*)' + S + '*(?=\\x5c\\x28)', 'g'), FN);
   return h;
 }
 
