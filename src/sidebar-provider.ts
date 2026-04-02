@@ -577,26 +577,36 @@ function esc(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-/* Simple syntax highlighter */
+/* Simple syntax highlighter — uses RegExp() strings to avoid issues with
+   forward slashes in regex literals inside inline script tags */
 function highlight(code) {
   if (!code) return '';
   var h = esc(code);
-  // Order matters: comments first, then strings, then keywords
+  var CM = '<span class="tok-cm">$1<\\/span>';
+  var STR = '<span class="tok-str">$1<\\/span>';
+  var NUM = '<span class="tok-num">$1<\\/span>';
+  var KW = '<span class="tok-kw">$1<\\/span>';
+  var TY = '<span class="tok-ty">$1<\\/span>';
+  var FN = '<span class="tok-fn">$1<\\/span>';
+  // Use hex escapes to avoid template literal + esbuild escaping issues
+  // \\x5c = backslash in the output string
+  var B = '\\x5cb'; // word boundary
+  var D = '\\x5cd'; // digit
+  var W = '\\x5cw'; // word char
+  var S = '\\x5cs'; // whitespace
   // Line comments
-  h = h.replace(/(\/\/.*$|#.*$)/gm, '<span class="tok-cm">$1</span>');
-  // Block comments
-  h = h.replace(/(\/\\*[\\s\\S]*?\\*\/)/g, '<span class="tok-cm">$1</span>');
-  // Strings (double and single quoted, backtick)
-  h = h.replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;|&#x27;(?:[^&]|&(?!#x27;))*?&#x27;|\`[^\`]*?\`)/g, '<span class="tok-str">$1</span>');
+  h = h.replace(new RegExp('(\\/\\/.*$|#.*$)', 'gm'), CM);
   // Numbers
-  h = h.replace(/\\b(\\d+\\.?\\d*)\\b/g, '<span class="tok-num">$1</span>');
+  h = h.replace(new RegExp(B + '(' + D + '+' + '\\x5c.?' + D + '*)' + B, 'g'), NUM);
+  // Strings (HTML-escaped quotes)
+  h = h.replace(new RegExp('(&quot;(?:[^&]|&(?!quot;))*?&quot;)', 'g'), STR);
   // Keywords
-  h = h.replace(/\\b(const|let|var|function|class|interface|type|enum|import|export|from|return|if|else|for|while|do|switch|case|break|continue|new|this|super|extends|implements|async|await|yield|throw|try|catch|finally|typeof|instanceof|in|of|void|null|undefined|true|false|default|static|public|private|protected|readonly|abstract|declare|module|namespace|require|def|self|lambda|raise|except|pass|with|as|elif|print|None|True|False)\\b/g,
-    '<span class="tok-kw">$1</span>');
-  // Type-like words (PascalCase)
-  h = h.replace(/\\b([A-Z][a-zA-Z0-9]+)\\b/g, '<span class="tok-ty">$1</span>');
+  var kws = 'const|let|var|function|class|interface|type|enum|import|export|from|return|if|else|for|while|do|switch|case|break|continue|new|this|super|extends|implements|async|await|yield|throw|try|catch|finally|typeof|instanceof|in|of|void|null|undefined|true|false|default|static|public|private|protected|readonly|abstract|declare|module|namespace|require|def|self|lambda|raise|except|pass|with|as|elif|print|None|True|False';
+  h = h.replace(new RegExp(B + '(' + kws + ')' + B, 'g'), KW);
+  // Types (PascalCase)
+  h = h.replace(new RegExp(B + '([A-Z][a-zA-Z0-9]+)' + B, 'g'), TY);
   // Function calls
-  h = h.replace(/\\b([a-zA-Z_]\\w*)\\s*(?=\\()/g, '<span class="tok-fn">$1</span>');
+  h = h.replace(new RegExp(B + '([a-zA-Z_]' + W + '*)' + S + '*(?=\\()', 'g'), FN);
   return h;
 }
 
