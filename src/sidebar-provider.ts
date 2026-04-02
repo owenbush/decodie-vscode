@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { DataParser, FullEntry } from '@owenbush/decodie-core';
+import { DecorationManager } from './decoration-manager';
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -11,6 +12,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _workspaceRoot: string,
+    private readonly _decorationManager?: DecorationManager,
   ) {
     this._parser = new DataParser(this._workspaceRoot);
   }
@@ -116,6 +118,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       );
 
       if (matchingEntries.length === 0) {
+        this._decorationManager?.clearDecorations(editor);
         this._view.webview.postMessage({
           type: 'empty',
           message: `No Decodie entries reference ${normalizedPath}.`,
@@ -135,6 +138,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           };
         }
       });
+
+      this._decorationManager?.updateDecorations(editor, fullEntries);
 
       this._view.webview.postMessage({
         type: 'updateEntries',

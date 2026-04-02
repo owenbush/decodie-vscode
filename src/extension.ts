@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SidebarProvider } from './sidebar-provider';
+import { DecorationManager } from './decoration-manager';
 import { analyzeCode } from './analysis-engine';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -10,9 +11,11 @@ export function activate(context: vscode.ExtensionContext) {
     return;
   }
 
-  const sidebarProvider = new SidebarProvider(context.extensionUri, workspaceRoot);
+  const decorationManager = new DecorationManager(context);
+  const sidebarProvider = new SidebarProvider(context.extensionUri, workspaceRoot, decorationManager);
 
   context.subscriptions.push(
+    decorationManager,
     vscode.window.registerWebviewViewProvider('decodie.sidebar', sidebarProvider),
     vscode.commands.registerCommand('decodie.refreshSidebar', () => {
       sidebarProvider.refresh();
