@@ -31,6 +31,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this._getHtml();
 
+    // Handle messages from webview
+    webviewView.webview.onDidReceiveMessage((msg) => {
+      this._handleWebviewMessage(msg);
+    });
+
     vscode.window.onDidChangeActiveTextEditor(
       () => this._onActiveEditorChanged(),
       null,
@@ -56,7 +61,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._updateForActiveEditor();
   }
 
-  /** Refresh and show entries for a specific file (e.g. after analysis). */
   public refreshForFile(relativeFilePath: string): void {
     this._parser.invalidateCache();
     if (!this._view) {
@@ -69,10 +73,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const index = this._parser.loadIndex();
 
       const matchingEntries = index.entries.filter((entry) =>
-        entry.references.some((ref) => {
-          const normalizedRef = ref.file.split(path.sep).join('/');
-          return normalizedRef === normalizedPath;
-        }),
+        entry.references.some((ref) =>
+          ref.file.split(path.sep).join('/') === normalizedPath,
+        ),
       );
 
       const fullEntries: FullEntry[] = matchingEntries.map((entry) => {
@@ -91,6 +94,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         currentFileEntries: fullEntries,
         allEntries,
       });
+
+      // Auto-show first new entry in the Entry tab
+      if (fullEntries.length > 0) {
+        this._view.webview.postMessage({
+          type: 'showEntry',
+          entry: fullEntries[0],
+        });
+      }
     } catch {
       this._updateForActiveEditor();
     }
@@ -110,6 +121,35 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   public getFileWatcherDisposable(): vscode.Disposable | undefined {
     return this._fileWatcher;
+  }
+
+  private _handleWebviewMessage(msg: { type: string; entryId?: string; file?: string; line?: number }): void {
+    if (msg.type === 'openEntry') {
+      // Load full entry and send to webview
+      if (msg.entryId) {
+        try {
+          this._parser.invalidateCache();
+          const fullEntry = this._parser.getEntryWithContent(msg.entryId);
+          this._view?.webview.postMessage({
+            type: 'showEntry',
+            entry: fullEntry,
+          });
+        } catch (err) {
+          console.error('Decodie: Failed to load entry', msg.entryId, err);
+        }
+      }
+
+      // Open the file and jump to line
+      if (msg.file) {
+        const absPath = path.join(this._workspaceRoot, msg.file);
+        const uri = vscode.Uri.file(absPath);
+        const line = (msg.line && msg.line > 0) ? msg.line - 1 : 0;
+        vscode.window.showTextDocument(uri, {
+          selection: new vscode.Range(line, 0, line, 0),
+          preserveFocus: true,
+        });
+      }
+    }
   }
 
   private _onDecodieDataChanged(): void {
@@ -154,10 +194,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const index = this._parser.loadIndex();
 
       const matchingEntries = index.entries.filter((entry) =>
-        entry.references.some((ref) => {
-          const normalizedRef = ref.file.split(path.sep).join('/');
-          return normalizedRef === normalizedPath;
-        }),
+        entry.references.some((ref) =>
+          ref.file.split(path.sep).join('/') === normalizedPath,
+        ),
       );
 
       const fullEntries: FullEntry[] = matchingEntries.map((entry) => {
@@ -204,7 +243,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       background: var(--vscode-sideBar-background);
     }
 
-    /* Tabs */
     .tabs {
       display: flex;
       border-bottom: 1px solid var(--vscode-panel-border);
@@ -216,13 +254,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     .tab {
       flex: 1;
-      padding: 8px 4px;
+      padding: 7px 2px;
       text-align: center;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       border-bottom: 2px solid transparent;
-      opacity: 0.7;
+      opacity: 0.6;
       transition: opacity 0.15s, border-color 0.15s;
     }
 
@@ -234,9 +272,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     .tab .count {
-      font-size: 10px;
-      opacity: 0.6;
-      margin-left: 4px;
+      font-size: 9px;
+      opacity: 0.5;
     }
 
     #content {
@@ -246,7 +283,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       gap: 10px;
     }
 
-    /* States */
     .state-msg {
       text-align: center;
       opacity: 0.7;
@@ -270,7 +306,54 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     .error-msg { color: var(--vscode-errorForeground, #f05252); }
 
-    /* Entry card */
+    /* List card (compact, clickable) */
+    .entry-list-item {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      background: var(--vscode-editor-background);
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .entry-list-item:hover {
+      border-color: var(--vscode-focusBorder, #0786f7);
+    }
+
+    .entry-list-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .entry-list-title { font-weight: 600; font-size: 12px; line-height: 1.3; }
+    .entry-list-meta { font-size: 10px; opacity: 0.6; }
+
+    .entry-list-file {
+      font-size: 10px;
+      opacity: 0.4;
+      font-family: var(--vscode-editor-font-family, monospace);
+      margin-top: 2px;
+    }
+
+    /* Detail card (full view) */
+    .entry-detail {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .back-link {
+      font-size: 11px;
+      cursor: pointer;
+      color: var(--vscode-textLink-foreground);
+      opacity: 0.8;
+      padding: 4px 0;
+    }
+
+    .back-link:hover { opacity: 1; text-decoration: underline; }
+
     .entry-card {
       border: 1px solid var(--vscode-panel-border);
       border-radius: 4px;
@@ -302,16 +385,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .level-ecosystem { background: #fbbf24; }
 
     .entry-title { font-weight: 600; font-size: 13px; line-height: 1.3; }
-
     .entry-meta { font-size: 11px; opacity: 0.7; margin-bottom: 8px; }
     .decision-type { font-style: italic; }
 
-    .entry-file {
+    .entry-file-link {
       font-size: 10px;
       opacity: 0.5;
       margin-bottom: 4px;
       font-family: var(--vscode-editor-font-family, monospace);
+      cursor: pointer;
+      color: var(--vscode-textLink-foreground);
     }
+
+    .entry-file-link:hover { opacity: 0.8; text-decoration: underline; }
 
     .code-block {
       background: var(--vscode-textCodeBlock-background);
@@ -364,49 +450,73 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div class="tabs">
-    <div class="tab active" data-tab="current" id="tabCurrent">Current File <span class="count" id="countCurrent"></span></div>
-    <div class="tab" data-tab="all" id="tabAll">All Entries <span class="count" id="countAll"></span></div>
+    <div class="tab active" data-tab="current" id="tabCurrent">File <span class="count" id="countCurrent"></span></div>
+    <div class="tab" data-tab="all" id="tabAll">All <span class="count" id="countAll"></span></div>
+    <div class="tab" data-tab="entry" id="tabEntry" style="display:none">Entry</div>
   </div>
   <div id="content">
     <div class="state-msg"><p>Open a file to see related entries.</p></div>
   </div>
 
   <script>
+    var vscode = acquireVsCodeApi();
     var content = document.getElementById('content');
     var tabCurrent = document.getElementById('tabCurrent');
     var tabAll = document.getElementById('tabAll');
+    var tabEntry = document.getElementById('tabEntry');
     var countCurrent = document.getElementById('countCurrent');
     var countAll = document.getElementById('countAll');
     var activeTab = 'current';
+    var previousTab = 'current';
     var state = { currentFile: null, currentFileEntries: [], allEntries: [] };
+    var currentEntry = null;
 
     tabCurrent.addEventListener('click', function() { setTab('current'); });
     tabAll.addEventListener('click', function() { setTab('all'); });
+    tabEntry.addEventListener('click', function() { if (currentEntry) setTab('entry'); });
 
     function setTab(tab) {
+      if (tab !== 'entry') previousTab = activeTab !== 'entry' ? activeTab : previousTab;
       activeTab = tab;
       tabCurrent.className = 'tab' + (tab === 'current' ? ' active' : '');
       tabAll.className = 'tab' + (tab === 'all' ? ' active' : '');
+      tabEntry.className = 'tab' + (tab === 'entry' ? ' active' : '');
       render();
     }
 
     function render() {
-      if (activeTab === 'current') {
+      if (activeTab === 'entry' && currentEntry) {
+        renderEntryDetail(currentEntry);
+      } else if (activeTab === 'current') {
         if (state.currentFileEntries.length === 0) {
           var msg = state.currentFile
             ? 'No entries for ' + esc(state.currentFile)
             : 'Open a file to see related entries.';
           content.innerHTML = '<div class="state-msg"><p>' + msg + '</p></div>';
         } else {
-          content.innerHTML = state.currentFileEntries.map(function(e) { return renderCard(e, false); }).join('');
+          content.innerHTML = state.currentFileEntries.map(function(e) { return renderListItem(e); }).join('');
+          attachClickHandlers();
         }
       } else {
         if (state.allEntries.length === 0) {
           content.innerHTML = '<div class="state-msg"><p>No entries in this project.</p></div>';
         } else {
-          content.innerHTML = state.allEntries.map(function(e) { return renderCard(e, true); }).join('');
+          content.innerHTML = state.allEntries.map(function(e) { return renderListItem(e); }).join('');
+          attachClickHandlers();
         }
       }
+    }
+
+    function attachClickHandlers() {
+      var items = content.querySelectorAll('.entry-list-item');
+      items.forEach(function(item) {
+        item.addEventListener('click', function() {
+          var id = item.getAttribute('data-id');
+          var file = item.getAttribute('data-file');
+          var line = parseInt(item.getAttribute('data-line') || '0', 10);
+          vscode.postMessage({ type: 'openEntry', entryId: id, file: file, line: line });
+        });
+      });
     }
 
     function esc(str) {
@@ -414,29 +524,69 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    function renderCard(entry, showFile) {
+    function renderListItem(entry) {
+      var lc = 'level-' + (entry.experience_level || 'intermediate');
+      var ll = entry.experience_level || 'intermediate';
+      var dt = entry.decision_type || '';
+      var topics = (entry.topics && entry.topics.length > 0)
+        ? ' &middot; ' + entry.topics.slice(0, 3).map(esc).join(', ') : '';
+
+      var file = '';
+      var filePath = '';
+      var line = 0;
+      if (entry.references && entry.references.length > 0) {
+        filePath = entry.references[0].file || '';
+        file = '<div class="entry-list-file">' + esc(filePath) + '</div>';
+      }
+
+      // Try to get line from reference_resolutions
+      if (entry.reference_resolutions && entry.reference_resolutions.length > 0) {
+        var res = entry.reference_resolutions[0];
+        if (res.resolved_line) line = res.resolved_line;
+        if (res.resolved_file) filePath = res.resolved_file;
+      }
+
+      return '<div class="entry-list-item" data-id="' + esc(entry.id) + '" data-file="' + esc(filePath) + '" data-line="' + line + '">' +
+        '<div class="entry-list-header"><span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
+        '<span class="entry-list-title">' + esc(entry.title) + '</span></div>' +
+        '<div class="entry-list-meta"><span class="decision-type">' + esc(dt) + '</span>' + topics + '</div>' +
+        file +
+        '</div>';
+    }
+
+    function renderEntryDetail(entry) {
       var lc = 'level-' + (entry.experience_level || 'intermediate');
       var ll = entry.experience_level || 'intermediate';
       var topics = (entry.topics && entry.topics.length > 0)
         ? ' &middot; ' + entry.topics.map(esc).join(', ') : '';
 
-      var fileHtml = '';
-      if (showFile && entry.references && entry.references.length > 0) {
-        fileHtml = '<div class="entry-file">' + esc(entry.references[0].file) + '</div>';
+      var fileLinks = '';
+      if (entry.reference_resolutions && entry.reference_resolutions.length > 0) {
+        fileLinks = entry.reference_resolutions.map(function(r) {
+          var loc = r.resolved_file || r.reference.file;
+          var line = r.resolved_line || 0;
+          var label = loc + (line ? ':' + line : '');
+          return '<div class="entry-file-link" onclick="openFile(\\'' + esc(loc).replace(/'/g, "\\\\'") + '\\',' + line + ')">' +
+            '<span class="status-dot status-' + r.status + '"></span> ' + esc(label) + '</div>';
+        }).join('');
+      } else if (entry.references && entry.references.length > 0) {
+        fileLinks = entry.references.map(function(ref) {
+          return '<div class="entry-file-link" onclick="openFile(\\'' + esc(ref.file).replace(/'/g, "\\\\'") + '\\',0)">' + esc(ref.file) + '</div>';
+        }).join('');
       }
 
       var code = entry.code_snippet
         ? '<div class="code-block"><pre><code>' + esc(entry.code_snippet) + '</code></pre></div>' : '';
 
       var explanation = entry.explanation
-        ? '<details><summary>Explanation</summary><div class="section-content">' + esc(entry.explanation) + '</div></details>' : '';
+        ? '<details open><summary>Explanation</summary><div class="section-content">' + esc(entry.explanation) + '</div></details>' : '';
 
       var alternatives = entry.alternatives_considered
         ? '<details><summary>Alternatives</summary><div class="section-content">' + esc(entry.alternatives_considered) + '</div></details>' : '';
 
       var concepts = '';
       if (entry.key_concepts && entry.key_concepts.length > 0) {
-        concepts = '<details><summary>Key Concepts</summary><div class="key-concepts">' +
+        concepts = '<details open><summary>Key Concepts</summary><div class="key-concepts">' +
           entry.key_concepts.map(function(c) { return '<span class="concept-tag">' + esc(c) + '</span>'; }).join('') +
           '</div></details>';
       }
@@ -449,24 +599,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }).join('') + '</div>';
       }
 
-      var refs = '';
-      if (entry.reference_resolutions && entry.reference_resolutions.length > 0) {
-        refs = '<div class="ref-status">' +
-          entry.reference_resolutions.map(function(r) {
-            var loc = r.resolved_file || r.reference.file;
-            if (r.resolved_line) loc += ':' + r.resolved_line;
-            return '<div class="ref-line"><span class="status-dot status-' + r.status + '"></span><span>' +
-              esc(r.status) + ' at ' + esc(loc) + '</span></div>';
-          }).join('') + '</div>';
-      }
+      content.innerHTML = '<div class="entry-detail">' +
+        '<div class="back-link" id="backLink">&larr; Back</div>' +
+        '<div class="entry-card">' +
+          '<div class="entry-header"><span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
+          '<span class="entry-title">' + esc(entry.title) + '</span></div>' +
+          '<div class="entry-meta"><span class="decision-type">' + esc(entry.decision_type || '') + '</span>' + topics + '</div>' +
+          fileLinks + code + explanation + alternatives + concepts + docs +
+        '</div></div>';
 
-      return '<div class="entry-card">' +
-        '<div class="entry-header"><span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
-        '<span class="entry-title">' + esc(entry.title) + '</span></div>' +
-        '<div class="entry-meta"><span class="decision-type">' + esc(entry.decision_type || '') + '</span>' + topics + '</div>' +
-        fileHtml + code + explanation + alternatives + concepts + docs + refs +
-        '</div>';
+      document.getElementById('backLink').addEventListener('click', function() {
+        setTab(previousTab);
+      });
     }
+
+    function openFile(file, line) {
+      vscode.postMessage({ type: 'openEntry', file: file, line: line });
+    }
+    // Make it available to inline onclick
+    window.openFile = openFile;
 
     window.addEventListener('message', function(event) {
       var msg = event.data;
@@ -479,7 +630,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           };
           countCurrent.textContent = state.currentFileEntries.length > 0 ? '(' + state.currentFileEntries.length + ')' : '';
           countAll.textContent = state.allEntries.length > 0 ? '(' + state.allEntries.length + ')' : '';
-          render();
+          if (activeTab !== 'entry') render();
+          break;
+        case 'showEntry':
+          currentEntry = msg.entry;
+          tabEntry.style.display = '';
+          setTab('entry');
           break;
         case 'analyzing':
           content.innerHTML = '<div class="state-msg"><div class="spinner"></div>' +
