@@ -5,6 +5,15 @@
   "version": "0.1.0",
   "publisher": "owenbush",
   "license": "MIT",
+  "galleryBanner": {
+    "color": "#1f2831",
+    "theme": "dark"
+  },
+  "keywords": ["learning", "documentation", "code-analysis", "AI", "Claude"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/owenbush/decodie-vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },

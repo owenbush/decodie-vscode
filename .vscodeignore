@@ -6,3 +6,4 @@ tsconfig.json
 esbuild.js
 **/*.map
 .gitignore
+tests/**
