@@ -37,10 +37,11 @@ export function activate(context: vscode.ExtensionContext) {
       const code = editor.document.getText(selection);
       const filePath = path.relative(workspaceRoot, editor.document.uri.fsPath);
 
-      await runAnalysis(code, filePath, workspaceRoot);
+      await runAnalysis(code, filePath, workspaceRoot, sidebarProvider);
     }),
 
-    vscode.commands.registerCommand('decodie.analyzeFile', async (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand('decodie.analyzeFile', async (...args: unknown[]) => {
+      const uri = args[0] instanceof vscode.Uri ? args[0] : undefined;
       let filePath: string;
       let code: string;
 
@@ -65,34 +66,39 @@ export function activate(context: vscode.ExtensionContext) {
         filePath = path.relative(workspaceRoot, editor.document.uri.fsPath);
       }
 
-      await runAnalysis(code, filePath, workspaceRoot);
+      await runAnalysis(code, filePath, workspaceRoot, sidebarProvider);
     }),
   );
 }
 
-async function runAnalysis(code: string, filePath: string, workspaceRoot: string): Promise<void> {
+async function runAnalysis(code: string, filePath: string, workspaceRoot: string, sidebarProvider: SidebarProvider): Promise<void> {
+  if (!workspaceRoot || !filePath) {
+    vscode.window.showErrorMessage('Decodie: No workspace or file path');
+    return;
+  }
+
+  // Open sidebar immediately and show analyzing status
+  await vscode.commands.executeCommand('decodie.sidebar.focus');
+  sidebarProvider.showAnalyzing(filePath);
+
   try {
-    const entries = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Decodie: Analyzing code...',
-        cancellable: false,
+    const entries = await analyzeCode({
+      code,
+      filePath,
+      workspaceRoot,
+      onProgress: (msg: string) => {
+        sidebarProvider.showAnalyzing(filePath, msg);
       },
-      async (progress) => {
-        return analyzeCode({
-          code,
-          filePath,
-          workspaceRoot,
-          onProgress: (msg: string) => {
-            progress.report({ message: msg });
-          },
-        });
-      },
-    );
+    });
 
     vscode.window.showInformationMessage(`Decodie: Created ${entries.length} entries`);
+    sidebarProvider.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.stack) {
+      console.error('Decodie analysis error:', err.stack);
+    }
+    sidebarProvider.showError(message);
     vscode.window.showErrorMessage(`Decodie: ${message}`);
   }
 }

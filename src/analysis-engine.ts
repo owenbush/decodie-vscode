@@ -1,9 +1,36 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as child_process from 'child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
 import { DataParser, IndexEntry, SessionEntry, SessionFile } from '@owenbush/decodie-core';
+
+/**
+ * Resolve the path to the Claude Code CLI executable.
+ * The Agent SDK needs this when bundled (import.meta.url is unavailable).
+ */
+function resolveClaudeExecutable(): string | undefined {
+  try {
+    const result = child_process.execSync('which claude', { encoding: 'utf-8' }).trim();
+    if (result && fs.existsSync(result)) {
+      return result;
+    }
+  } catch {
+    // not found in PATH
+  }
+  // Common install locations
+  const candidates = [
+    path.join(process.env.HOME || '', '.local', 'bin', 'claude'),
+    '/usr/local/bin/claude',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      return c;
+    }
+  }
+  return undefined;
+}
 
 /** Entry returned from analysis before writing to disk */
 export interface GeneratedEntry {
@@ -117,6 +144,32 @@ function anchorHash(anchor: string): string {
   return crypto.createHash('sha256').update(anchor).digest('hex').slice(0, 8);
 }
 
+/**
+ * Extract JSON from a response that may contain markdown fences or surrounding text.
+ */
+function extractJson(text: string): string {
+  // Try raw text first
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) {
+    return trimmed;
+  }
+
+  // Try extracting from markdown code fences
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+
+  // Try finding the first { to last }
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return trimmed;
+}
+
 const SYSTEM_PROMPT = `You are a code analysis assistant for the Decodie learning documentation system. Your job is to analyze provided code and identify patterns, decisions, conventions, and concepts worth documenting for a developer learning this codebase.
 
 Analyze the code and return a JSON object with an "entries" array containing 3-5 of the most significant patterns or decisions.
@@ -206,12 +259,19 @@ export async function analyzeCode(params: {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const fullPrompt = SYSTEM_PROMPT + '\n\n' + userMessage;
 
+    const claudePath = resolveClaudeExecutable();
+    if (!claudePath) {
+      throw new Error('Claude Code CLI not found. Install it from https://docs.anthropic.com/en/docs/claude-code or use an API key instead.');
+    }
+
     const conversation = query({
       prompt: fullPrompt,
       options: {
         model,
         maxTurns: 1,
+        tools: [],
         cwd: workspaceRoot,
+        pathToClaudeCodeExecutable: claudePath,
         env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: auth.token },
       },
     });
@@ -240,16 +300,12 @@ export async function analyzeCode(params: {
   onProgress?.('Processing results...');
 
   let parsed: { entries: RawAnalysisEntry[] };
+  const jsonText = extractJson(responseText);
   try {
-    parsed = JSON.parse(responseText);
-  } catch {
-    // Try extracting JSON from markdown code fences
-    const match = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) {
-      parsed = JSON.parse(match[1]);
-    } else {
-      throw new Error('Failed to parse Claude response as JSON');
-    }
+    parsed = JSON.parse(jsonText);
+  } catch (parseErr) {
+    console.error('Decodie: Failed to parse response. Raw text:', responseText.slice(0, 500));
+    throw new Error('Failed to parse Claude response as JSON');
   }
 
   if (!parsed.entries || !Array.isArray(parsed.entries)) {
