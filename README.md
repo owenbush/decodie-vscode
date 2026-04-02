@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/decodie-logo.png" alt="Decodie" width="200"></p>
+
 # Decodie for VSCode
 
 View and create [Decodie](https://github.com/owenbush/decodie-ui) learning entries directly in your editor.
