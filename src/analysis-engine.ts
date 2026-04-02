@@ -145,6 +145,62 @@ function anchorHash(anchor: string): string {
 }
 
 /**
+ * Attempt to repair truncated JSON by closing open structures.
+ */
+function repairJson(text: string): string {
+  let s = text.trim();
+
+  // Remove trailing comma
+  s = s.replace(/,\s*$/, '');
+
+  // Close any open string (find last unescaped quote)
+  const quoteCount = (s.match(/(?<!\\)"/g) || []).length;
+  if (quoteCount % 2 !== 0) {
+    s += '"';
+  }
+
+  // Count open braces/brackets and close them
+  let braces = 0;
+  let brackets = 0;
+  let inString = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '"' && (i === 0 || s[i - 1] !== '\\')) {
+      inString = !inString;
+    } else if (!inString) {
+      if (ch === '{') braces++;
+      else if (ch === '}') braces--;
+      else if (ch === '[') brackets++;
+      else if (ch === ']') brackets--;
+    }
+  }
+
+  // Remove any trailing partial key-value (ends with "key": or "key": "partial)
+  s = s.replace(/,?\s*"[^"]*":\s*"?[^"{}[\]]*$/, '');
+
+  // Recount after cleanup
+  braces = 0;
+  brackets = 0;
+  inString = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '"' && (i === 0 || s[i - 1] !== '\\')) {
+      inString = !inString;
+    } else if (!inString) {
+      if (ch === '{') braces++;
+      else if (ch === '}') braces--;
+      else if (ch === '[') brackets++;
+      else if (ch === ']') brackets--;
+    }
+  }
+
+  while (brackets > 0) { s += ']'; brackets--; }
+  while (braces > 0) { s += '}'; braces--; }
+
+  return s;
+}
+
+/**
  * Extract JSON from a response that may contain markdown fences or surrounding text.
  */
 function extractJson(text: string): string {
@@ -170,31 +226,17 @@ function extractJson(text: string): string {
   return trimmed;
 }
 
-const SYSTEM_PROMPT = `You are a code analysis assistant for the Decodie learning documentation system. Your job is to analyze provided code and identify patterns, decisions, conventions, and concepts worth documenting for a developer learning this codebase.
+const SYSTEM_PROMPT = `You are a code analysis assistant. Analyze the code and return a JSON object with an "entries" array containing 2-4 entries.
 
-Analyze the code and return a JSON object with an "entries" array containing 3-5 of the most significant patterns or decisions.
+CRITICAL: Keep explanations concise (2-3 sentences max). Keep code_snippet short (key lines only). This avoids truncation.
 
-Each entry must have these fields:
-- "title": A concise, descriptive title for the pattern/decision
-- "code_snippet": The relevant code excerpt (keep it focused, not the entire file)
-- "explanation": A clear explanation emphasizing WHY this approach was chosen, not just WHAT it does
-- "alternatives_considered": What alternatives exist and why they weren't chosen
-- "key_concepts": An array of concept strings the developer should understand
-- "topics": An array of lowercase kebab-case topic tags (e.g., "error-handling", "type-safety")
-- "experience_level": One of "foundational", "intermediate", "advanced", "ecosystem"
-- "decision_type": One of "explanation", "rationale", "pattern", "warning", "convention"
-- "references": An array of objects with { "file": "<relative-path>", "anchor": "<code-anchor>", "anchor_hash": "<first-8-hex-of-sha256-of-anchor>" }
-- "external_docs": An array of objects with { "label": "<description>", "url": "<url>" }
+Each entry: { "title": string, "code_snippet": string, "explanation": string, "alternatives_considered": string, "key_concepts": [string], "topics": [lowercase-kebab-strings], "experience_level": "foundational"|"intermediate"|"advanced"|"ecosystem", "decision_type": "explanation"|"rationale"|"pattern"|"warning"|"convention", "references": [{"file": string, "anchor": string, "anchor_hash": string}], "external_docs": [{"label": string, "url": string}] }
 
-Guidelines:
-- Be selective: pick the 3-5 most significant and educational patterns
-- Emphasize "why" over "what" in explanations
-- For anchors, use function signatures, class declarations, or distinctive code blocks (NOT line numbers)
-- For anchor_hash, compute the first 8 hex characters of the SHA-256 hash of the anchor text
-- Topics should be specific and useful for filtering (e.g., "dependency-injection" not just "code")
-- External docs should link to official documentation when relevant
-
-Return ONLY valid JSON with no markdown formatting or code fences. The response must be parseable by JSON.parse().`;
+Rules:
+- 2-4 most significant patterns only
+- Anchors: function signatures or class declarations, NOT line numbers
+- anchor_hash: first 8 hex chars of SHA-256 of anchor text
+- Return ONLY valid JSON, no markdown fences, no extra text`;
 
 interface RawAnalysisEntry {
   title: string;
@@ -303,14 +345,22 @@ export async function analyzeCode(params: {
   const jsonText = extractJson(responseText);
   try {
     parsed = JSON.parse(jsonText);
-  } catch (parseErr) {
-    console.error('Decodie: Failed to parse response. Raw text:', responseText.slice(0, 500));
-    throw new Error('Failed to parse Claude response as JSON');
+  } catch {
+    // Response may be truncated — try to repair by closing open strings/objects
+    try {
+      parsed = JSON.parse(repairJson(jsonText));
+    } catch {
+      console.error('Decodie: Failed to parse response. Raw text:', responseText.slice(0, 500));
+      throw new Error('Failed to parse Claude response as JSON');
+    }
   }
 
   if (!parsed.entries || !Array.isArray(parsed.entries)) {
     throw new Error('Claude response missing "entries" array');
   }
+
+  // Filter out incomplete entries (from truncated responses)
+  parsed.entries = parsed.entries.filter((e) => e.title && e.explanation);
 
   // 7. Generate entry IDs and compute anchor hashes
   const sessionId = nextSessionId(workspaceRoot);
