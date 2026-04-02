@@ -211,6 +211,7 @@ export async function analyzeCode(params: {
       options: {
         model,
         maxTurns: 1,
+        cwd: workspaceRoot,
         env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: auth.token },
       },
     });
