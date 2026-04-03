@@ -503,6 +503,10 @@ details .section-content {
 .qa-send:hover { background: var(--vscode-button-hoverBackground); }
 .qa-send:disabled { opacity: 0.5; cursor: default; }
 .qa-error { color: var(--vscode-errorForeground, #f05252); font-size: 12px; margin-top: 4px; }
+.qa-msg code { font-family: var(--vscode-editor-font-family, monospace); }
+.qa-msg .code-block { margin: 6px 0; font-size: 12px; }
+.qa-msg strong { font-weight: 600; }
+.qa-msg em { font-style: italic; }
 </style>
 </head>
 <body>
@@ -688,6 +692,39 @@ function esc(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+/* Simple markdown renderer for Q&A responses.
+   Uses hex \\x60 for backtick to avoid breaking the template literal. */
+function renderMd(str) {
+  if (!str) return '';
+  var h = esc(str);
+  var BT = '\\x60'; // backtick
+  var BT3 = BT + BT + BT;
+  // Code blocks
+  h = h.replace(new RegExp(BT3 + '([a-zA-Z]*)\\n([\\s\\S]*?)' + BT3, 'g'), function(m, lang, code) {
+    return '<div class="code-block"><pre><code>' + code.trim() + '</code></pre></div>';
+  });
+  // Inline code
+  h = h.replace(new RegExp(BT + '([^' + BT + ']+)' + BT, 'g'),
+    '<code style="background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>');
+  // Headings
+  h = h.replace(/^#### (.+)$/gm, '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
+  h = h.replace(/^### (.+)$/gm, '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
+  h = h.replace(/^## (.+)$/gm, '<strong style="font-size:14px;display:block;margin-top:10px;">$1</strong>');
+  h = h.replace(/^# (.+)$/gm, '<strong style="font-size:15px;display:block;margin-top:10px;">$1</strong>');
+  // Bold and italic
+  h = h.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Unordered lists
+  h = h.replace(/^- (.+)$/gm, '<div style="padding-left:12px;">&#x2022; $1</div>');
+  // Numbered lists
+  h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:12px;">$1. $2</div>');
+  // Line breaks
+  h = h.replace(/\n\n/g, '<br><br>');
+  h = h.replace(/\n/g, '<br>');
+  return h;
+}
+
 /* Simple syntax highlighter — uses RegExp() strings to avoid issues with
    forward slashes in regex literals inside inline script tags */
 function highlight(code) {
@@ -798,14 +835,15 @@ function renderEntryDetail(entry) {
   if (qaConversation.length > 0) {
     convoHtml = qaConversation.map(function(turn) {
       var cls = turn.role === 'user' ? 'qa-user' : 'qa-assistant';
-      return '<div class="qa-msg ' + cls + '">' + esc(turn.content) + '</div>';
+      var content2 = turn.role === 'assistant' ? renderMd(turn.content) : esc(turn.content);
+      return '<div class="qa-msg ' + cls + '">' + content2 + '</div>';
     }).join('');
   }
 
   // Streaming response
   var streamHtml = '';
   if (qaStreaming) {
-    streamHtml = '<div class="qa-msg qa-assistant qa-streaming" id="qaStream">' + esc(qaStreamBuffer) + '</div>';
+    streamHtml = '<div class="qa-msg qa-assistant qa-streaming" id="qaStream">' + renderMd(qaStreamBuffer) + '</div>';
   }
 
   var qaSection = '<div class="qa-section">' +
@@ -917,7 +955,7 @@ window.addEventListener('message', function(event) {
       // Update just the streaming element without full re-render
       var streamEl = document.getElementById('qaStream');
       if (streamEl) {
-        streamEl.textContent = qaStreamBuffer;
+        streamEl.innerHTML = renderMd(qaStreamBuffer);
         var convoEl2 = document.getElementById('qaConvo');
         if (convoEl2) convoEl2.scrollTop = convoEl2.scrollHeight;
       } else {
