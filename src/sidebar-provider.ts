@@ -60,6 +60,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._updateForActiveEditor();
   }
 
+  /** Show a specific entry by ID in the Entry tab. */
+  public showEntryById(entryId: string): void {
+    try {
+      this._parser.invalidateCache();
+      const fullEntry = this._parser.getEntryWithContent(entryId);
+      this._view?.webview.postMessage({
+        type: 'showEntry',
+        entry: fullEntry,
+      });
+    } catch (err) {
+      console.error('Decodie: Failed to load entry', entryId, err);
+    }
+  }
+
   public refreshForFile(relativeFilePath: string): void {
     this._parser.invalidateCache();
     if (!this._view) {

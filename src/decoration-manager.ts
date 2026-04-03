@@ -11,7 +11,6 @@ export class DecorationManager {
     });
   }
 
-  /** Update decorations for the given editor based on resolved entries */
   updateDecorations(editor: vscode.TextEditor, entries: FullEntry[]): void {
     const decorations: vscode.DecorationOptions[] = [];
 
@@ -19,10 +18,16 @@ export class DecorationManager {
       if (!entry.reference_resolutions) continue;
       for (const resolution of entry.reference_resolutions) {
         if (resolution.resolved_line && resolution.status !== 'stale') {
-          const line = resolution.resolved_line - 1; // 0-based
+          const line = resolution.resolved_line - 1;
+          const hover = new vscode.MarkdownString(
+            `**Decodie:** ${entry.title}\n\n` +
+            `[View Entry](command:decodie.viewEntry?${encodeURIComponent(JSON.stringify(entry.id))})`
+          );
+          hover.isTrusted = true;
+
           decorations.push({
             range: new vscode.Range(line, 0, line, 0),
-            hoverMessage: new vscode.MarkdownString(`**Decodie:** ${entry.title}`),
+            hoverMessage: hover,
           });
         }
       }
@@ -31,7 +36,6 @@ export class DecorationManager {
     editor.setDecorations(this._decorationType, decorations);
   }
 
-  /** Clear all decorations from an editor */
   clearDecorations(editor: vscode.TextEditor): void {
     editor.setDecorations(this._decorationType, []);
   }
