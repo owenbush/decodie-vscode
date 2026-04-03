@@ -2,7 +2,7 @@
   "name": "decodie-vscode",
   "displayName": "Decodie",
   "description": "View and create Decodie learning entries directly in your editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "owenbush",
   "license": "MIT",
   "icon": "resources/decodie-icon-128.png",
