@@ -706,22 +706,25 @@ function renderMd(str) {
   // Inline code
   h = h.replace(new RegExp(BT + '([^' + BT + ']+)' + BT, 'g'),
     '<code style="background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>');
+  // All regexes use new RegExp() to avoid escaping issues in template literals
+  var STAR = '\\x5c*'; // escaped asterisk for regex
+  var NL = '\\x5cn'; // escaped newline for regex
   // Headings
-  h = h.replace(/^#### (.+)$/gm, '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
-  h = h.replace(/^### (.+)$/gm, '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
-  h = h.replace(/^## (.+)$/gm, '<strong style="font-size:14px;display:block;margin-top:10px;">$1</strong>');
-  h = h.replace(/^# (.+)$/gm, '<strong style="font-size:15px;display:block;margin-top:10px;">$1</strong>');
+  h = h.replace(new RegExp('^#### (.+)$', 'gm'), '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
+  h = h.replace(new RegExp('^### (.+)$', 'gm'), '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
+  h = h.replace(new RegExp('^## (.+)$', 'gm'), '<strong style="font-size:14px;display:block;margin-top:10px;">$1</strong>');
+  h = h.replace(new RegExp('^# (.+)$', 'gm'), '<strong style="font-size:15px;display:block;margin-top:10px;">$1</strong>');
   // Bold and italic
-  h = h.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  h = h.replace(new RegExp(STAR + STAR + STAR + '(.+?)' + STAR + STAR + STAR, 'g'), '<strong><em>$1</em></strong>');
+  h = h.replace(new RegExp(STAR + STAR + '(.+?)' + STAR + STAR, 'g'), '<strong>$1</strong>');
+  h = h.replace(new RegExp(STAR + '(.+?)' + STAR, 'g'), '<em>$1</em>');
   // Unordered lists
-  h = h.replace(/^- (.+)$/gm, '<div style="padding-left:12px;">&#x2022; $1</div>');
+  h = h.replace(new RegExp('^- (.+)$', 'gm'), '<div style="padding-left:12px;">&#x2022; $1</div>');
   // Numbered lists
-  h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:12px;">$1. $2</div>');
+  h = h.replace(new RegExp('^(\\x5cd+)\\x5c. (.+)$', 'gm'), '<div style="padding-left:12px;">$1. $2</div>');
   // Line breaks
-  h = h.replace(/\n\n/g, '<br><br>');
-  h = h.replace(/\n/g, '<br>');
+  h = h.replace(new RegExp(NL + NL, 'g'), '<br><br>');
+  h = h.replace(new RegExp(NL, 'g'), '<br>');
   return h;
 }
 
