@@ -19,6 +19,7 @@ export class DecorationManager {
       for (const resolution of entry.reference_resolutions) {
         if (resolution.resolved_line && resolution.status !== 'stale') {
           const line = resolution.resolved_line - 1;
+          const lineLength = editor.document.lineAt(line).text.length;
           const hover = new vscode.MarkdownString(
             `**Decodie:** ${entry.title}\n\n` +
             `[View Entry](command:decodie.viewEntry?${encodeURIComponent(JSON.stringify(entry.id))})`
@@ -26,7 +27,7 @@ export class DecorationManager {
           hover.isTrusted = true;
 
           decorations.push({
-            range: new vscode.Range(line, 0, line, 0),
+            range: new vscode.Range(line, 0, line, lineLength),
             hoverMessage: hover,
           });
         }
