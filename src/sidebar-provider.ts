@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { marked } from 'marked';
 import { DataParser, FullEntry } from '@owenbush/decodie-core';
 import { DecorationManager } from './decoration-manager';
 import { askQuestion, loadConversation, saveConversation, ConversationTurn } from './qa-engine';
+
+/** Render markdown to HTML using marked */
+function renderMarkdown(text: string): string {
+  return marked.parse(text, { async: false, breaks: true }) as string;
+}
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -67,10 +73,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._parser.invalidateCache();
       const fullEntry = this._parser.getEntryWithContent(entryId);
       const savedConvo = loadConversation(this._workspaceRoot, entryId);
+      const renderedConvo = savedConvo.map((turn) => ({
+        ...turn,
+        html: turn.role === 'assistant' ? renderMarkdown(turn.content) : undefined,
+      }));
       this._view?.webview.postMessage({
         type: 'showEntry',
         entry: fullEntry,
-        conversation: savedConvo,
+        conversation: renderedConvo,
       });
     } catch (err) {
       console.error('Decodie: Failed to load entry', entryId, err);
@@ -168,13 +178,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this._parser.invalidateCache();
           const fullEntry = this._parser.getEntryWithContent(msg.entryId);
 
-          // Load saved conversation for this entry
+          // Load saved conversation and pre-render markdown
           const savedConvo = loadConversation(this._workspaceRoot, msg.entryId);
+          const renderedConvo = savedConvo.map((turn) => ({
+            ...turn,
+            html: turn.role === 'assistant' ? renderMarkdown(turn.content) : undefined,
+          }));
 
           this._view?.webview.postMessage({
             type: 'showEntry',
             entry: fullEntry,
-            conversation: savedConvo,
+            conversation: renderedConvo,
           });
         } catch (err) {
           console.error('Decodie: Failed to load entry', msg.entryId, err);
@@ -194,7 +208,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     if (msg.type === 'askQuestion' && msg.entry && msg.question) {
       const entry = msg.entry;
-      const conversation = msg.conversation || [];
+      // Strip html field from conversation turns before sending to API
+      const conversation: ConversationTurn[] = (msg.conversation || []).map((t) => ({
+        role: t.role,
+        content: t.content,
+      }));
+
+      let streamBuffer = '';
 
       askQuestion({
         entry,
@@ -202,16 +222,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         conversation,
         workspaceRoot: this._workspaceRoot,
         onDelta: (text) => {
-          this._view?.webview.postMessage({ type: 'qaDelta', text });
+          streamBuffer += text;
+          // Send pre-rendered markdown HTML on each delta
+          this._view?.webview.postMessage({
+            type: 'qaDelta',
+            html: renderMarkdown(streamBuffer),
+          });
         },
         onDone: () => {
-          this._view?.webview.postMessage({ type: 'qaDone' });
+          // Send final rendered HTML
+          this._view?.webview.postMessage({
+            type: 'qaDone',
+            html: renderMarkdown(streamBuffer),
+          });
         },
         onError: (error) => {
           this._view?.webview.postMessage({ type: 'qaError', error });
         },
       }).then((fullResponse) => {
-        // Save conversation after response completes
         if (entry.id && fullResponse) {
           const updatedConvo: ConversationTurn[] = [
             ...conversation,
@@ -503,10 +531,20 @@ details .section-content {
 .qa-send:hover { background: var(--vscode-button-hoverBackground); }
 .qa-send:disabled { opacity: 0.5; cursor: default; }
 .qa-error { color: var(--vscode-errorForeground, #f05252); font-size: 12px; margin-top: 4px; }
-.qa-msg code { font-family: var(--vscode-editor-font-family, monospace); }
-.qa-msg .code-block { margin: 6px 0; font-size: 12px; }
+.qa-msg code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  background: var(--vscode-textCodeBlock-background);
+  padding: 1px 4px; border-radius: 3px; font-size: 12px;
+}
+.qa-msg pre { margin: 6px 0; overflow-x: auto; }
+.qa-msg pre code { display: block; padding: 8px; background: var(--vscode-textCodeBlock-background); border-radius: 3px; }
+.qa-msg p { margin: 4px 0; }
+.qa-msg ul, .qa-msg ol { margin: 4px 0; padding-left: 20px; }
+.qa-msg li { margin: 2px 0; }
+.qa-msg h1, .qa-msg h2, .qa-msg h3, .qa-msg h4 { margin: 8px 0 4px; font-size: 13px; }
 .qa-msg strong { font-weight: 600; }
 .qa-msg em { font-style: italic; }
+.qa-msg a { color: var(--vscode-textLink-foreground); }
 </style>
 </head>
 <body>
@@ -534,9 +572,9 @@ var state = { currentFile: null, currentFileEntries: [], allEntries: [] };
 var currentEntry = null;
 var analyzing = null; // { filePath, detail } or null
 var filters = { level: null, type: null, topic: null };
-var qaConversation = []; // [{role, content}]
+var qaConversation = []; // [{role, content, html?}]
 var qaStreaming = false;
-var qaStreamBuffer = '';
+var qaStreamHtml = '';
 
 tabCurrent.addEventListener('click', function() { setTab('current'); });
 tabAll.addEventListener('click', function() { setTab('all'); });
@@ -692,42 +730,6 @@ function esc(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-/* Simple markdown renderer for Q&A responses.
-   Uses hex \\x60 for backtick to avoid breaking the template literal. */
-function renderMd(str) {
-  if (!str) return '';
-  var h = esc(str);
-  var BT = '\\x60'; // backtick
-  var BT3 = BT + BT + BT;
-  // Code blocks
-  h = h.replace(new RegExp(BT3 + '([a-zA-Z]*)\\n([\\s\\S]*?)' + BT3, 'g'), function(m, lang, code) {
-    return '<div class="code-block"><pre><code>' + code.trim() + '</code></pre></div>';
-  });
-  // Inline code
-  h = h.replace(new RegExp(BT + '([^' + BT + ']+)' + BT, 'g'),
-    '<code style="background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>');
-  // All regexes use new RegExp() to avoid escaping issues in template literals
-  var STAR = '\\x5c*'; // escaped asterisk for regex
-  var NL = '\\x5cn'; // escaped newline for regex
-  // Headings
-  h = h.replace(new RegExp('^#### (.+)$', 'gm'), '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
-  h = h.replace(new RegExp('^### (.+)$', 'gm'), '<strong style="font-size:13px;display:block;margin-top:8px;">$1</strong>');
-  h = h.replace(new RegExp('^## (.+)$', 'gm'), '<strong style="font-size:14px;display:block;margin-top:10px;">$1</strong>');
-  h = h.replace(new RegExp('^# (.+)$', 'gm'), '<strong style="font-size:15px;display:block;margin-top:10px;">$1</strong>');
-  // Bold and italic
-  h = h.replace(new RegExp(STAR + STAR + STAR + '(.+?)' + STAR + STAR + STAR, 'g'), '<strong><em>$1</em></strong>');
-  h = h.replace(new RegExp(STAR + STAR + '(.+?)' + STAR + STAR, 'g'), '<strong>$1</strong>');
-  h = h.replace(new RegExp(STAR + '(.+?)' + STAR, 'g'), '<em>$1</em>');
-  // Unordered lists
-  h = h.replace(new RegExp('^- (.+)$', 'gm'), '<div style="padding-left:12px;">&#x2022; $1</div>');
-  // Numbered lists
-  h = h.replace(new RegExp('^(\\x5cd+)\\x5c. (.+)$', 'gm'), '<div style="padding-left:12px;">$1. $2</div>');
-  // Line breaks
-  h = h.replace(new RegExp(NL + NL, 'g'), '<br><br>');
-  h = h.replace(new RegExp(NL, 'g'), '<br>');
-  return h;
-}
-
 /* Simple syntax highlighter — uses RegExp() strings to avoid issues with
    forward slashes in regex literals inside inline script tags */
 function highlight(code) {
@@ -838,15 +840,15 @@ function renderEntryDetail(entry) {
   if (qaConversation.length > 0) {
     convoHtml = qaConversation.map(function(turn) {
       var cls = turn.role === 'user' ? 'qa-user' : 'qa-assistant';
-      var content2 = turn.role === 'assistant' ? renderMd(turn.content) : esc(turn.content);
-      return '<div class="qa-msg ' + cls + '">' + content2 + '</div>';
+      var body = turn.html || esc(turn.content);
+      return '<div class="qa-msg ' + cls + '">' + body + '</div>';
     }).join('');
   }
 
   // Streaming response
   var streamHtml = '';
   if (qaStreaming) {
-    streamHtml = '<div class="qa-msg qa-assistant qa-streaming" id="qaStream">' + renderMd(qaStreamBuffer) + '</div>';
+    streamHtml = '<div class="qa-msg qa-assistant qa-streaming" id="qaStream">' + (qaStreamHtml || '') + '</div>';
   }
 
   var qaSection = '<div class="qa-section">' +
@@ -893,7 +895,7 @@ function renderEntryDetail(entry) {
     if (!q || qaStreaming) return;
     qaInput.value = '';
     qaStreaming = true;
-    qaStreamBuffer = '';
+    qaStreamHtml = '';
     vscode.postMessage({
       type: 'askQuestion',
       entry: currentEntry,
@@ -949,16 +951,15 @@ window.addEventListener('message', function(event) {
       currentEntry = msg.entry;
       qaConversation = msg.conversation || [];
       qaStreaming = false;
-      qaStreamBuffer = '';
+      qaStreamHtml = '';
       tabEntry.style.display = '';
       setTab('entry');
       break;
     case 'qaDelta':
-      qaStreamBuffer += msg.text;
-      // Update just the streaming element without full re-render
+      qaStreamHtml = msg.html || '';
       var streamEl = document.getElementById('qaStream');
       if (streamEl) {
-        streamEl.innerHTML = renderMd(qaStreamBuffer);
+        streamEl.innerHTML = qaStreamHtml;
         var convoEl2 = document.getElementById('qaConvo');
         if (convoEl2) convoEl2.scrollTop = convoEl2.scrollHeight;
       } else {
@@ -966,16 +967,16 @@ window.addEventListener('message', function(event) {
       }
       break;
     case 'qaDone':
-      if (qaStreamBuffer) {
-        qaConversation.push({ role: 'assistant', content: qaStreamBuffer });
+      if (msg.html) {
+        qaConversation.push({ role: 'assistant', content: '', html: msg.html });
       }
       qaStreaming = false;
-      qaStreamBuffer = '';
+      qaStreamHtml = '';
       render();
       break;
     case 'qaError':
       qaStreaming = false;
-      qaStreamBuffer = '';
+      qaStreamHtml = '';
       render();
       var errEl = document.getElementById('qaError');
       if (errEl) errEl.textContent = msg.error || 'Failed to get response';
