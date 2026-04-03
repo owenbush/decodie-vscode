@@ -5,10 +5,10 @@ import * as child_process from 'child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
 import { DataParser, IndexEntry, SessionEntry, SessionFile } from '@owenbush/decodie-core';
+import { loadAuth } from './auth';
 
 /**
  * Resolve the path to the Claude Code CLI executable.
- * The Agent SDK needs this when bundled (import.meta.url is unavailable).
  */
 function resolveClaudeExecutable(): string | undefined {
   try {
@@ -19,7 +19,6 @@ function resolveClaudeExecutable(): string | undefined {
   } catch {
     // not found in PATH
   }
-  // Common install locations
   const candidates = [
     path.join(process.env.HOME || '', '.local', 'bin', 'claude'),
     '/usr/local/bin/claude',
@@ -45,62 +44,6 @@ export interface GeneratedEntry {
   decision_type: 'explanation' | 'rationale' | 'pattern' | 'warning' | 'convention';
   references: { file: string; anchor: string; anchor_hash: string }[];
   external_docs: { label: string; url: string }[];
-}
-
-interface AuthCredentials {
-  type: 'oauth' | 'apikey';
-  token: string;
-}
-
-/**
- * Parse a .env file manually: read lines, skip comments/blanks, split on first `=`.
- */
-function parseEnvFile(filePath: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  if (!fs.existsSync(filePath)) {
-    return result;
-  }
-  const content = fs.readFileSync(filePath, 'utf-8');
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex === -1) {
-      continue;
-    }
-    const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
-    result[key] = value;
-  }
-  return result;
-}
-
-/**
- * Load authentication credentials from .decodie/.env or VSCode settings.
- */
-function loadAuth(workspaceRoot: string): AuthCredentials {
-  const envPath = path.join(workspaceRoot, '.decodie', '.env');
-  const env = parseEnvFile(envPath);
-
-  if (env.CLAUDE_CODE_OAUTH_TOKEN) {
-    return { type: 'oauth', token: env.CLAUDE_CODE_OAUTH_TOKEN };
-  }
-  if (env.CLAUDE_API_KEY) {
-    return { type: 'apikey', token: env.CLAUDE_API_KEY };
-  }
-
-  // Fall back to VSCode settings
-  const config = vscode.workspace.getConfiguration('decodie');
-  const apiKey = config.get<string>('apiKey');
-  if (apiKey) {
-    return { type: 'apikey', token: apiKey };
-  }
-
-  throw new Error(
-    'No Anthropic credentials found. Add CLAUDE_API_KEY to .decodie/.env or set decodie.apiKey in VSCode settings.'
-  );
 }
 
 /**

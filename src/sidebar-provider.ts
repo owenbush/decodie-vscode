@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { DataParser, FullEntry } from '@owenbush/decodie-core';
 import { DecorationManager } from './decoration-manager';
+import { askQuestion, loadConversation, saveConversation, ConversationTurn } from './qa-engine';
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -65,9 +66,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       this._parser.invalidateCache();
       const fullEntry = this._parser.getEntryWithContent(entryId);
+      const savedConvo = loadConversation(this._workspaceRoot, entryId);
       this._view?.webview.postMessage({
         type: 'showEntry',
         entry: fullEntry,
+        conversation: savedConvo,
       });
     } catch (err) {
       console.error('Decodie: Failed to load entry', entryId, err);
@@ -150,15 +153,28 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     return this._fileWatcher;
   }
 
-  private _handleWebviewMessage(msg: { type: string; entryId?: string; file?: string; line?: number }): void {
+  private _handleWebviewMessage(msg: {
+    type: string;
+    entryId?: string;
+    file?: string;
+    line?: number;
+    question?: string;
+    conversation?: ConversationTurn[];
+    entry?: FullEntry;
+  }): void {
     if (msg.type === 'openEntry') {
       if (msg.entryId) {
         try {
           this._parser.invalidateCache();
           const fullEntry = this._parser.getEntryWithContent(msg.entryId);
+
+          // Load saved conversation for this entry
+          const savedConvo = loadConversation(this._workspaceRoot, msg.entryId);
+
           this._view?.webview.postMessage({
             type: 'showEntry',
             entry: fullEntry,
+            conversation: savedConvo,
           });
         } catch (err) {
           console.error('Decodie: Failed to load entry', msg.entryId, err);
@@ -174,6 +190,37 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           preserveFocus: true,
         });
       }
+    }
+
+    if (msg.type === 'askQuestion' && msg.entry && msg.question) {
+      const entry = msg.entry;
+      const conversation = msg.conversation || [];
+
+      askQuestion({
+        entry,
+        question: msg.question,
+        conversation,
+        workspaceRoot: this._workspaceRoot,
+        onDelta: (text) => {
+          this._view?.webview.postMessage({ type: 'qaDelta', text });
+        },
+        onDone: () => {
+          this._view?.webview.postMessage({ type: 'qaDone' });
+        },
+        onError: (error) => {
+          this._view?.webview.postMessage({ type: 'qaError', error });
+        },
+      }).then((fullResponse) => {
+        // Save conversation after response completes
+        if (entry.id && fullResponse) {
+          const updatedConvo: ConversationTurn[] = [
+            ...conversation,
+            { role: 'user', content: msg.question! },
+            { role: 'assistant', content: fullResponse },
+          ];
+          saveConversation(this._workspaceRoot, entry.id, updatedConvo);
+        }
+      });
     }
   }
 
@@ -424,6 +471,38 @@ details .section-content {
 .status-drifted { background: #fbbf24; }
 .status-fuzzy { background: #fb923c; }
 .status-stale { background: #f05252; }
+
+/* Q&A */
+.qa-section { margin-top: 12px; border-top: 1px solid var(--vscode-panel-border); padding-top: 10px; }
+.qa-header { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.qa-conversation { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.qa-msg { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; }
+.qa-user { background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); }
+.qa-assistant { background: var(--vscode-textCodeBlock-background); }
+.qa-streaming { opacity: 0.8; }
+.qa-streaming::after { content: '\\25CF'; animation: blink 1s infinite; margin-left: 2px; }
+@keyframes blink { 50% { opacity: 0; } }
+.qa-input-row { display: flex; gap: 6px; }
+.qa-input {
+  flex: 1; padding: 6px 8px; font-size: 13px;
+  font-family: var(--vscode-font-family);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px; outline: none; resize: none;
+  min-height: 32px; max-height: 120px;
+}
+.qa-input:focus { border-color: var(--vscode-focusBorder, #0786f7); }
+.qa-send {
+  padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none; border-radius: 4px;
+  align-self: flex-end;
+}
+.qa-send:hover { background: var(--vscode-button-hoverBackground); }
+.qa-send:disabled { opacity: 0.5; cursor: default; }
+.qa-error { color: var(--vscode-errorForeground, #f05252); font-size: 12px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -451,6 +530,9 @@ var state = { currentFile: null, currentFileEntries: [], allEntries: [] };
 var currentEntry = null;
 var analyzing = null; // { filePath, detail } or null
 var filters = { level: null, type: null, topic: null };
+var qaConversation = []; // [{role, content}]
+var qaStreaming = false;
+var qaStreamBuffer = '';
 
 tabCurrent.addEventListener('click', function() { setTab('current'); });
 tabAll.addEventListener('click', function() { setTab('all'); });
@@ -711,6 +793,32 @@ function renderEntryDetail(entry) {
       }).join('') + '</div>';
   }
 
+  // Build conversation HTML
+  var convoHtml = '';
+  if (qaConversation.length > 0) {
+    convoHtml = qaConversation.map(function(turn) {
+      var cls = turn.role === 'user' ? 'qa-user' : 'qa-assistant';
+      return '<div class="qa-msg ' + cls + '">' + esc(turn.content) + '</div>';
+    }).join('');
+  }
+
+  // Streaming response
+  var streamHtml = '';
+  if (qaStreaming) {
+    streamHtml = '<div class="qa-msg qa-assistant qa-streaming" id="qaStream">' + esc(qaStreamBuffer) + '</div>';
+  }
+
+  var qaSection = '<div class="qa-section">' +
+    '<div class="qa-header">Ask about this entry</div>' +
+    '<div class="qa-conversation" id="qaConvo">' + convoHtml + streamHtml + '</div>' +
+    '<div class="qa-input-row">' +
+      '<textarea class="qa-input" id="qaInput" placeholder="Ask a question..." rows="1"' +
+        (qaStreaming ? ' disabled' : '') + '></textarea>' +
+      '<button class="qa-send" id="qaSend"' + (qaStreaming ? ' disabled' : '') + '>Ask</button>' +
+    '</div>' +
+    '<div class="qa-error" id="qaError"></div>' +
+  '</div>';
+
   content.innerHTML = '<div class="entry-detail">' +
     '<div class="back-link" id="backLink">&larr; Back</div>' +
     '<div class="entry-card">' +
@@ -718,7 +826,9 @@ function renderEntryDetail(entry) {
       '<span class="entry-title">' + esc(entry.title) + '</span></div>' +
       '<div class="entry-meta"><span class="decision-type">' + esc(entry.decision_type || '') + '</span>' + topics + '</div>' +
       fileLinks + code + explanation + alternatives + concepts + docs +
-    '</div></div>';
+    '</div>' +
+    qaSection +
+  '</div>';
 
   document.getElementById('backLink').addEventListener('click', function() {
     setTab(previousTab);
@@ -732,6 +842,49 @@ function renderEntryDetail(entry) {
       vscode.postMessage({ type: 'openEntry', file: f, line: l });
     });
   });
+
+  // Q&A input
+  var qaInput = document.getElementById('qaInput');
+  var qaSend = document.getElementById('qaSend');
+
+  function sendQuestion() {
+    var q = qaInput.value.trim();
+    if (!q || qaStreaming) return;
+    qaInput.value = '';
+    qaStreaming = true;
+    qaStreamBuffer = '';
+    vscode.postMessage({
+      type: 'askQuestion',
+      entry: currentEntry,
+      question: q,
+      conversation: qaConversation,
+    });
+    // Add user message immediately and re-render
+    qaConversation.push({ role: 'user', content: q });
+    render();
+    // Scroll to bottom
+    var convoEl = document.getElementById('qaConvo');
+    if (convoEl) convoEl.scrollTop = convoEl.scrollHeight;
+  }
+
+  if (qaSend) {
+    qaSend.addEventListener('click', sendQuestion);
+  }
+  if (qaInput) {
+    qaInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuestion();
+      }
+    });
+    // Auto-resize
+    qaInput.addEventListener('input', function() {
+      qaInput.style.height = 'auto';
+      qaInput.style.height = Math.min(qaInput.scrollHeight, 120) + 'px';
+    });
+    // Focus the input
+    if (!qaStreaming) qaInput.focus();
+  }
 }
 
 window.addEventListener('message', function(event) {
@@ -753,8 +906,38 @@ window.addEventListener('message', function(event) {
       break;
     case 'showEntry':
       currentEntry = msg.entry;
+      qaConversation = msg.conversation || [];
+      qaStreaming = false;
+      qaStreamBuffer = '';
       tabEntry.style.display = '';
       setTab('entry');
+      break;
+    case 'qaDelta':
+      qaStreamBuffer += msg.text;
+      // Update just the streaming element without full re-render
+      var streamEl = document.getElementById('qaStream');
+      if (streamEl) {
+        streamEl.textContent = qaStreamBuffer;
+        var convoEl2 = document.getElementById('qaConvo');
+        if (convoEl2) convoEl2.scrollTop = convoEl2.scrollHeight;
+      } else {
+        render();
+      }
+      break;
+    case 'qaDone':
+      if (qaStreamBuffer) {
+        qaConversation.push({ role: 'assistant', content: qaStreamBuffer });
+      }
+      qaStreaming = false;
+      qaStreamBuffer = '';
+      render();
+      break;
+    case 'qaError':
+      qaStreaming = false;
+      qaStreamBuffer = '';
+      render();
+      var errEl = document.getElementById('qaError');
+      if (errEl) errEl.textContent = msg.error || 'Failed to get response';
       break;
     case 'analyzing':
       analyzing = { filePath: msg.filePath, detail: msg.detail };
