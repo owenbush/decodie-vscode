@@ -5,6 +5,7 @@ import { SidebarProvider } from './sidebar-provider';
 import { DecorationManager } from './decoration-manager';
 import { DecodieCodeLensProvider } from './codelens-provider';
 import { analyzeCode } from './analysis-engine';
+import { explainCode } from './explain-engine';
 
 export function activate(context: vscode.ExtensionContext) {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -58,6 +59,46 @@ export function activate(context: vscode.ExtensionContext) {
       const filePath = path.relative(workspaceRoot, editor.document.uri.fsPath);
 
       await runAnalysis(code, filePath, workspaceRoot, sidebarProvider, codeLensProvider);
+    }),
+
+    vscode.commands.registerCommand('decodie.explainSelection', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage('Decodie: No active editor');
+        return;
+      }
+
+      const selection = editor.selection;
+      if (selection.isEmpty) {
+        vscode.window.showErrorMessage('Decodie: No text selected');
+        return;
+      }
+
+      const code = editor.document.getText(selection);
+      const filePath = path.relative(workspaceRoot, editor.document.uri.fsPath);
+
+      await vscode.commands.executeCommand('decodie.sidebar.focus');
+      sidebarProvider.showExplaining(filePath);
+
+      try {
+        const result = await explainCode({
+          code,
+          filePath,
+          workspaceRoot,
+          onProgress: (msg: string) => {
+            sidebarProvider.showExplaining(filePath, msg);
+          },
+        });
+
+        sidebarProvider.showExplainResult(result, filePath);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof Error && err.stack) {
+          console.error('Decodie explain error:', err.stack);
+        }
+        sidebarProvider.showError(message);
+        vscode.window.showErrorMessage(`Decodie: ${message}`);
+      }
     }),
 
     vscode.commands.registerCommand('decodie.analyzeFile', async (...args: unknown[]) => {

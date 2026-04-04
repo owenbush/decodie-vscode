@@ -1,9 +1,18 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { marked } from 'marked';
-import { DataParser, FullEntry } from '@owenbush/decodie-core';
+import {
+  DataParser,
+  FullEntry,
+  IndexEntry,
+  SessionEntry,
+  SessionFile,
+} from '@owenbush/decodie-core';
 import { DecorationManager } from './decoration-manager';
 import { askQuestion, loadConversation, saveConversation, ConversationTurn } from './qa-engine';
+import { ExplainResult } from './explain-engine';
 
 /** Render markdown to HTML using marked */
 function renderMarkdown(text: string): string {
@@ -159,6 +168,143 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: 'error', message });
   }
 
+  public showExplaining(filePath: string, detail?: string): void {
+    this._view?.webview.postMessage({
+      type: 'explaining',
+      filePath,
+      detail: detail || 'Starting explanation...',
+    });
+  }
+
+  public showExplainResult(result: ExplainResult, filePath: string): void {
+    this._view?.webview.postMessage({
+      type: 'showExplain',
+      result,
+      filePath,
+    });
+  }
+
+  private _nextExplainSessionId(): string {
+    const today = new Date().toISOString().slice(0, 10);
+    const prefix = `explain-${today}-`;
+    const sessionsDir = path.join(this._workspaceRoot, '.decodie', 'sessions');
+
+    let maxN = 0;
+    if (fs.existsSync(sessionsDir)) {
+      for (const file of fs.readdirSync(sessionsDir)) {
+        if (file.startsWith(prefix) && file.endsWith('.json')) {
+          const numStr = file.slice(prefix.length, -5);
+          const num = parseInt(numStr, 10);
+          if (!isNaN(num) && num > maxN) {
+            maxN = num;
+          }
+        }
+      }
+    }
+
+    const next = String(maxN + 1).padStart(3, '0');
+    return `${prefix}${next}`;
+  }
+
+  private _saveExplainAsEntry(result: ExplainResult, filePath: string): void {
+    try {
+      const sessionId = this._nextExplainSessionId();
+      const sessionsDir = path.join(this._workspaceRoot, '.decodie', 'sessions');
+      if (!fs.existsSync(sessionsDir)) {
+        fs.mkdirSync(sessionsDir, { recursive: true });
+      }
+
+      const ts = Math.floor(Date.now() / 1000);
+      const rand = crypto.randomBytes(2).toString('hex');
+      const entryId = `entry-${ts}-${rand}`;
+      const now = new Date().toISOString();
+
+      const anchor = result.code_snippet.slice(0, 100);
+      const anchorHash = crypto
+        .createHash('sha256')
+        .update(result.code_snippet)
+        .digest('hex')
+        .slice(0, 8);
+
+      const sessionEntry: SessionEntry = {
+        id: entryId,
+        title: result.title,
+        code_snippet: result.code_snippet,
+        explanation: result.summary,
+        alternatives_considered: '',
+        key_concepts: result.key_concepts,
+        breakdowns: result.breakdowns,
+        issues: result.issues,
+        improvements: result.improvements,
+      };
+
+      const sessionFile: SessionFile = {
+        session_id: sessionId,
+        timestamp_start: now,
+        timestamp_end: now,
+        summary: `Explanation of ${filePath}`,
+        entries: [sessionEntry],
+      };
+
+      const sessionPath = path.join(sessionsDir, `${sessionId}.json`);
+      const sessionTmp = sessionPath + '.tmp';
+      fs.writeFileSync(sessionTmp, JSON.stringify(sessionFile, null, 2) + '\n', 'utf-8');
+      fs.renameSync(sessionTmp, sessionPath);
+
+      // Update index.json
+      const indexPath = path.join(this._workspaceRoot, '.decodie', 'index.json');
+      let index: { version: string; project: string; entries: IndexEntry[] };
+      try {
+        this._parser.invalidateCache();
+        const loaded = this._parser.loadIndex();
+        index = {
+          version: loaded.version,
+          project: loaded.project,
+          entries: [...loaded.entries],
+        };
+      } catch {
+        const projectName = path.basename(this._workspaceRoot);
+        index = { version: '1.0', project: projectName, entries: [] };
+      }
+
+      const newIndexEntry: IndexEntry = {
+        id: entryId,
+        title: result.title,
+        experience_level: result.experience_level,
+        topics: result.topics,
+        decision_type: 'explanation',
+        session_id: sessionId,
+        timestamp: now,
+        lifecycle: 'active',
+        references: [
+          {
+            file: filePath,
+            anchor,
+            anchor_hash: anchorHash,
+          },
+        ],
+        external_docs: [],
+        cross_references: [],
+        content_file: `sessions/${sessionId}.json`,
+        superseded_by: null,
+      };
+
+      index.entries.push(newIndexEntry);
+
+      const indexTmp = indexPath + '.tmp';
+      fs.writeFileSync(indexTmp, JSON.stringify(index, null, 2) + '\n', 'utf-8');
+      fs.renameSync(indexTmp, indexPath);
+
+      this._parser.invalidateCache();
+      this.refreshForFile(filePath);
+      vscode.window.showInformationMessage(`Decodie: Saved explanation as entry`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Decodie: Failed to save explain entry', err);
+      vscode.window.showErrorMessage(`Decodie: Failed to save entry: ${message}`);
+    }
+  }
+
   public getFileWatcherDisposable(): vscode.Disposable | undefined {
     return this._fileWatcher;
   }
@@ -171,7 +317,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     question?: string;
     conversation?: ConversationTurn[];
     entry?: FullEntry;
+    result?: ExplainResult;
+    filePath?: string;
   }): void {
+    if (msg.type === 'saveExplain' && msg.result && msg.filePath) {
+      this._saveExplainAsEntry(msg.result, msg.filePath);
+      return;
+    }
+
     if (msg.type === 'openEntry') {
       if (msg.entryId) {
         try {
@@ -545,6 +698,59 @@ details .section-content {
 .qa-msg strong { font-weight: 600; }
 .qa-msg em { font-style: italic; }
 .qa-msg a { color: var(--vscode-textLink-foreground); }
+
+/* Explain layout */
+.explain-header {
+  display: flex; gap: 8px; align-items: center;
+  margin-bottom: 10px;
+}
+.explain-save-btn {
+  padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none; border-radius: 4px;
+}
+.explain-save-btn:hover { background: var(--vscode-button-hoverBackground); }
+.explain-save-btn:disabled { opacity: 0.5; cursor: default; }
+.explain-summary {
+  font-size: 13px; line-height: 1.5;
+  padding: 10px; border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background);
+  margin-bottom: 12px;
+}
+.breakdown-card {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px; padding: 10px; margin: 8px 0;
+  background: var(--vscode-editor-background);
+}
+.breakdown-pattern {
+  display: inline-block; font-size: 10px; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 3px;
+  background: rgba(7,134,247,0.15); color: var(--vscode-textLink-foreground);
+  margin-bottom: 6px;
+}
+.breakdown-explanation { font-size: 12px; margin-top: 6px; line-height: 1.5; }
+.issue-item, .improvement-item {
+  padding: 8px 10px; margin: 6px 0;
+  border: 1px solid var(--vscode-panel-border); border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+.severity-badge {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 3px;
+  margin-right: 6px; color: #000;
+}
+.severity-info { background: #0786f7; color: #fff; }
+.severity-warning { background: #fbbf24; }
+.severity-error { background: #f05252; color: #fff; }
+.issue-description, .improvement-description { font-size: 12px; font-weight: 500; }
+.issue-suggestion, .improvement-rationale {
+  font-size: 12px; opacity: 0.8; margin-top: 4px; font-style: italic;
+}
+.section-title {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; opacity: 0.7; margin: 16px 0 8px;
+}
 </style>
 </head>
 <body>
@@ -570,6 +776,8 @@ var activeTab = 'current';
 var previousTab = 'current';
 var state = { currentFile: null, currentFileEntries: [], allEntries: [] };
 var currentEntry = null;
+var currentExplain = null; // { result, filePath } or null
+var explaining = null; // { filePath, detail } while loading
 var analyzing = null; // { filePath, detail } or null
 var filters = { level: null, type: null, topic: null };
 var qaConversation = []; // [{role, content, html?}]
@@ -578,7 +786,7 @@ var qaStreamHtml = '';
 
 tabCurrent.addEventListener('click', function() { setTab('current'); });
 tabAll.addEventListener('click', function() { setTab('all'); });
-tabEntry.addEventListener('click', function() { if (currentEntry) setTab('entry'); });
+tabEntry.addEventListener('click', function() { if (currentEntry || currentExplain || explaining) setTab('entry'); });
 
 function setTab(tab) {
   if (tab !== 'entry') previousTab = activeTab !== 'entry' ? activeTab : previousTab;
@@ -590,13 +798,131 @@ function setTab(tab) {
 }
 
 function render() {
-  if (activeTab === 'entry' && currentEntry) {
-    renderEntryDetail(currentEntry);
-  } else if (activeTab === 'current') {
+  if (activeTab === 'entry') {
+    if (explaining && !currentExplain) {
+      content.innerHTML = '<div class="state-msg"><div class="spinner"></div>' +
+        '<p>Explaining ' + esc(explaining.filePath) + '</p>' +
+        '<p>' + esc(explaining.detail || '') + '</p></div>';
+      return;
+    }
+    if (currentExplain) {
+      renderExplain();
+      return;
+    }
+    if (currentEntry) {
+      renderEntryDetail(currentEntry);
+      return;
+    }
+    content.innerHTML = '<div class="state-msg"><p>Nothing to show.</p></div>';
+    return;
+  }
+  if (activeTab === 'current') {
     renderCurrentFile();
   } else {
     renderAllEntries();
   }
+}
+
+function renderExplain() {
+  var r = currentExplain.result;
+  var fp = currentExplain.filePath;
+
+  var summaryHtml = '<div class="explain-summary">' + esc(r.summary) + '</div>';
+
+  var codeHtml = r.code_snippet
+    ? '<div class="code-block"><pre><code>' + highlight(r.code_snippet) + '</code></pre></div>'
+    : '';
+
+  var breakdownsHtml = '';
+  if (r.breakdowns && r.breakdowns.length > 0) {
+    breakdownsHtml = '<div class="section-title">Breakdown</div>' +
+      r.breakdowns.map(function(b) {
+        var patternBadge = b.pattern
+          ? '<div class="breakdown-pattern">' + esc(b.pattern) + '</div>'
+          : '';
+        var excerpt = b.code_excerpt
+          ? '<div class="code-block"><pre><code>' + highlight(b.code_excerpt) + '</code></pre></div>'
+          : '';
+        return '<div class="breakdown-card">' + patternBadge + excerpt +
+          '<div class="breakdown-explanation">' + esc(b.explanation) + '</div></div>';
+      }).join('');
+  }
+
+  var issuesHtml = '';
+  if (r.issues && r.issues.length > 0) {
+    issuesHtml = '<div class="section-title">Issues</div>' +
+      r.issues.map(function(i) {
+        var sev = i.severity || 'info';
+        var suggestion = i.suggestion
+          ? '<div class="issue-suggestion">' + esc(i.suggestion) + '</div>'
+          : '';
+        return '<div class="issue-item">' +
+          '<span class="severity-badge severity-' + esc(sev) + '">' + esc(sev) + '</span>' +
+          '<span class="issue-description">' + esc(i.description) + '</span>' +
+          suggestion + '</div>';
+      }).join('');
+  }
+
+  var improvementsHtml = '';
+  if (r.improvements && r.improvements.length > 0) {
+    improvementsHtml = '<div class="section-title">Improvements</div>' +
+      r.improvements.map(function(im) {
+        var rationale = im.rationale
+          ? '<div class="improvement-rationale">' + esc(im.rationale) + '</div>'
+          : '';
+        return '<div class="improvement-item">' +
+          '<div class="improvement-description">' + esc(im.description) + '</div>' +
+          rationale + '</div>';
+      }).join('');
+  }
+
+  var conceptsHtml = '';
+  if (r.key_concepts && r.key_concepts.length > 0) {
+    conceptsHtml = '<div class="section-title">Key Concepts</div>' +
+      '<div class="key-concepts">' +
+      r.key_concepts.map(function(c) {
+        return '<span class="concept-tag">' + esc(c) + '</span>';
+      }).join('') + '</div>';
+  }
+
+  var lc = 'level-' + (r.experience_level || 'intermediate');
+  var ll = r.experience_level || 'intermediate';
+
+  content.innerHTML = '<div class="entry-detail">' +
+    '<div class="explain-header">' +
+      '<button class="explain-save-btn" id="explainSaveBtn">Save as entry</button>' +
+      '<span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
+      '<span class="entry-title">' + esc(r.title) + '</span>' +
+    '</div>' +
+    '<div class="entry-file-link" data-file="' + esc(fp) + '" data-line="0">' + esc(fp) + '</div>' +
+    summaryHtml +
+    codeHtml +
+    breakdownsHtml +
+    issuesHtml +
+    improvementsHtml +
+    conceptsHtml +
+    '</div>';
+
+  var saveBtn = document.getElementById('explainSaveBtn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function() {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      vscode.postMessage({
+        type: 'saveExplain',
+        result: currentExplain.result,
+        filePath: currentExplain.filePath,
+      });
+    });
+  }
+
+  content.querySelectorAll('.entry-file-link').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var f = el.getAttribute('data-file');
+      var l = parseInt(el.getAttribute('data-line') || '0', 10);
+      vscode.postMessage({ type: 'openEntry', file: f, line: l });
+    });
+  });
 }
 
 function renderCurrentFile() {
@@ -949,9 +1275,23 @@ window.addEventListener('message', function(event) {
       break;
     case 'showEntry':
       currentEntry = msg.entry;
+      currentExplain = null;
+      explaining = null;
       qaConversation = msg.conversation || [];
       qaStreaming = false;
       qaStreamHtml = '';
+      tabEntry.style.display = '';
+      setTab('entry');
+      break;
+    case 'explaining':
+      explaining = { filePath: msg.filePath, detail: msg.detail };
+      currentExplain = null;
+      tabEntry.style.display = '';
+      setTab('entry');
+      break;
+    case 'showExplain':
+      currentExplain = { result: msg.result, filePath: msg.filePath };
+      explaining = null;
       tabEntry.style.display = '';
       setTab('entry');
       break;

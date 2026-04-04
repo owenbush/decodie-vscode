@@ -59,12 +59,21 @@
       {
         "command": "decodie.analyzeFile",
         "title": "Decodie: Analyze File"
+      },
+      {
+        "command": "decodie.explainSelection",
+        "title": "Decodie: Explain Selection"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "decodie.analyzeSelection",
+          "when": "editorHasSelection",
+          "group": "decodie"
+        },
+        {
+          "command": "decodie.explainSelection",
           "when": "editorHasSelection",
           "group": "decodie"
         },
@@ -105,7 +114,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@anthropic-ai/sdk": "^0.52.0",
-    "@owenbush/decodie-core": "^0.2.0",
+    "@owenbush/decodie-core": "file:../decodie-core",
     "marked": "^17.0.5"
   },
   "devDependencies": {

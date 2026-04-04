@@ -10,7 +10,7 @@ import { loadAuth } from './auth';
 /**
  * Resolve the path to the Claude Code CLI executable.
  */
-function resolveClaudeExecutable(): string | undefined {
+export function resolveClaudeExecutable(): string | undefined {
   try {
     const result = child_process.execSync('which claude', { encoding: 'utf-8' }).trim();
     if (result && fs.existsSync(result)) {
@@ -90,7 +90,7 @@ function anchorHash(anchor: string): string {
 /**
  * Attempt to repair truncated JSON by closing open structures.
  */
-function repairJson(text: string): string {
+export function repairJson(text: string): string {
   let s = text.trim();
 
   // Remove trailing comma
@@ -146,7 +146,7 @@ function repairJson(text: string): string {
 /**
  * Extract JSON from a response that may contain markdown fences or surrounding text.
  */
-function extractJson(text: string): string {
+export function extractJson(text: string): string {
   // Try raw text first
   const trimmed = text.trim();
   if (trimmed.startsWith('{')) {
