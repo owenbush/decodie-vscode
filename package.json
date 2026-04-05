@@ -2,9 +2,10 @@
   "name": "decodie-vscode",
   "displayName": "Decodie",
   "description": "View and create Decodie learning entries directly in your editor",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "publisher": "owenbush",
   "license": "MIT",
+  "icon": "resources/decodie-icon-128.png",
   "galleryBanner": {
     "color": "#1f2831",
     "theme": "dark"
@@ -58,12 +59,21 @@
       {
         "command": "decodie.analyzeFile",
         "title": "Decodie: Analyze File"
+      },
+      {
+        "command": "decodie.explainSelection",
+        "title": "Decodie: Explain Selection"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "decodie.analyzeSelection",
+          "when": "editorHasSelection",
+          "group": "decodie"
+        },
+        {
+          "command": "decodie.explainSelection",
           "when": "editorHasSelection",
           "group": "decodie"
         },
@@ -104,7 +114,8 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@anthropic-ai/sdk": "^0.52.0",
-    "@owenbush/decodie-core": "^0.2.0"
+    "@owenbush/decodie-core": "^0.3.0",
+    "marked": "^17.0.5"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
