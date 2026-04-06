@@ -25,6 +25,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _fileWatcher: vscode.FileSystemWatcher | undefined;
   private _disposables: vscode.Disposable[] = [];
+  private _lastExplainResult: { result: ExplainResult; filePath: string } | null = null;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -66,10 +67,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._handleWebviewMessage(msg);
     });
 
-    // When the webview becomes visible, send current data
+    // When the webview becomes visible, restore state
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        this._updateForActiveEditor();
+        this._restoreState();
       }
     });
 
@@ -77,13 +78,26 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._view = undefined;
     });
 
-    // Send initial data after a short delay to let the webview script load
-    setTimeout(() => this._updateForActiveEditor(), 100);
+    // Restore state after a short delay to let the webview script load
+    setTimeout(() => this._restoreState(), 100);
   }
 
   public refresh(): void {
     this._parser.invalidateCache();
     this._updateForActiveEditor();
+  }
+
+  /** Restore the sidebar to its previous state (unsaved explain or file entries). */
+  private _restoreState(): void {
+    this._updateForActiveEditor();
+    // If there's an unsaved explain result, re-show it
+    if (this._lastExplainResult) {
+      this._view?.webview.postMessage({
+        type: 'showExplain',
+        result: this._lastExplainResult.result,
+        filePath: this._lastExplainResult.filePath,
+      });
+    }
   }
 
   /** Show a specific entry by ID in the Entry tab. */
@@ -187,6 +201,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public showExplainResult(result: ExplainResult, filePath: string): void {
+    this._lastExplainResult = { result, filePath };
     this._view?.webview.postMessage({
       type: 'showExplain',
       result,
@@ -331,6 +346,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     filePath?: string;
   }): void {
     if (msg.type === 'saveExplain' && msg.result && msg.filePath) {
+      this._lastExplainResult = null; // Clear cache — it's now a persisted entry
       this._saveExplainAsEntry(msg.result, msg.filePath);
       return;
     }
