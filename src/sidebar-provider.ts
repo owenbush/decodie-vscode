@@ -24,6 +24,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _parser: DataParser;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _fileWatcher: vscode.FileSystemWatcher | undefined;
+  private _disposables: vscode.Disposable[] = [];
+  private _lastExplainResult: { result: ExplainResult; filePath: string } | null = null;
+  private _pendingMessages: unknown[] = [];
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -31,6 +34,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     private readonly _decorationManager?: DecorationManager,
   ) {
     this._parser = new DataParser(this._workspaceRoot);
+
+    // Register editor change listener once (not per resolveWebviewView call)
+    this._disposables.push(
+      vscode.window.onDidChangeActiveTextEditor(() => this._onActiveEditorChanged()),
+    );
+
+    // File watcher registered once
+    this._fileWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(this._workspaceRoot, '.decodie/**/*.json'),
+    );
+    this._fileWatcher.onDidChange(() => this._onDecodieDataChanged());
+    this._fileWatcher.onDidCreate(() => this._onDecodieDataChanged());
+    this._fileWatcher.onDidDelete(() => this._onDecodieDataChanged());
+    this._disposables.push(this._fileWatcher);
   }
 
   public resolveWebviewView(
@@ -51,29 +68,59 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._handleWebviewMessage(msg);
     });
 
-    vscode.window.onDidChangeActiveTextEditor(
-      () => this._onActiveEditorChanged(),
-      null,
-    );
-
-    this._fileWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(this._workspaceRoot, '.decodie/**/*.json'),
-    );
-
-    this._fileWatcher.onDidChange(() => this._onDecodieDataChanged());
-    this._fileWatcher.onDidCreate(() => this._onDecodieDataChanged());
-    this._fileWatcher.onDidDelete(() => this._onDecodieDataChanged());
-
-    this._onActiveEditorChanged();
+    // When the webview becomes visible, restore state
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this._restoreState();
+      }
+    });
 
     webviewView.onDidDispose(() => {
-      this._fileWatcher?.dispose();
+      this._view = undefined;
     });
+
+    // Restore state and flush pending messages after webview script loads
+    setTimeout(() => {
+      this._flushPendingMessages();
+      this._restoreState();
+    }, 100);
+  }
+
+  /** Post a message to the webview, queuing if the view isn't ready yet. */
+  private _postMessage(msg: unknown): void {
+    if (this._view) {
+      this._view.webview.postMessage(msg);
+    } else {
+      this._pendingMessages.push(msg);
+    }
+  }
+
+  /** Flush any queued messages (called after webview is ready). */
+  private _flushPendingMessages(): void {
+    if (this._view && this._pendingMessages.length > 0) {
+      for (const msg of this._pendingMessages) {
+        this._view.webview.postMessage(msg);
+      }
+      this._pendingMessages = [];
+    }
   }
 
   public refresh(): void {
     this._parser.invalidateCache();
     this._updateForActiveEditor();
+  }
+
+  /** Restore the sidebar to its previous state (unsaved explain or file entries). */
+  private _restoreState(): void {
+    this._updateForActiveEditor();
+    // If there's an unsaved explain result, re-show it
+    if (this._lastExplainResult) {
+      this._view?.webview.postMessage({
+        type: 'showExplain',
+        result: this._lastExplainResult.result,
+        filePath: this._lastExplainResult.filePath,
+      });
+    }
   }
 
   /** Show a specific entry by ID in the Entry tab. */
@@ -143,21 +190,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   public showAnalyzing(filePath: string, detail?: string): void {
     // Send current data so All tab has entries while analyzing
-    if (this._view) {
-      try {
-        const index = this._parser.loadIndex();
-        const allEntries = index.entries.filter((e) => e.lifecycle === 'active');
-        this._view.webview.postMessage({
-          type: 'update',
-          currentFile: filePath,
-          currentFileEntries: [],
-          allEntries,
-        });
-      } catch {
-        // no index yet, that's fine
-      }
+    try {
+      const index = this._parser.loadIndex();
+      const allEntries = index.entries.filter((e) => e.lifecycle === 'active');
+      this._postMessage({
+        type: 'update',
+        currentFile: filePath,
+        currentFileEntries: [],
+        allEntries,
+      });
+    } catch {
+      // no index yet, that's fine
     }
-    this._view?.webview.postMessage({
+    this._postMessage({
       type: 'analyzing',
       filePath,
       detail: detail || 'Starting analysis...',
@@ -165,11 +210,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public showError(message: string): void {
-    this._view?.webview.postMessage({ type: 'error', message });
+    this._postMessage({ type: 'error', message });
   }
 
   public showExplaining(filePath: string, detail?: string): void {
-    this._view?.webview.postMessage({
+    this._postMessage({
       type: 'explaining',
       filePath,
       detail: detail || 'Starting explanation...',
@@ -177,7 +222,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public showExplainResult(result: ExplainResult, filePath: string): void {
-    this._view?.webview.postMessage({
+    this._lastExplainResult = { result, filePath };
+    this._postMessage({
       type: 'showExplain',
       result,
       filePath,
@@ -321,6 +367,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     filePath?: string;
   }): void {
     if (msg.type === 'saveExplain' && msg.result && msg.filePath) {
+      this._lastExplainResult = null; // Clear cache — it's now a persisted entry
       this._saveExplainAsEntry(msg.result, msg.filePath);
       return;
     }
