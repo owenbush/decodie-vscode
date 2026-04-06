@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+- **Decodie: Explain Selection** — right-click any code selection to get a
+  detailed explanation with summary, breakdowns of complex sections, issues
+  with severity levels, and improvement suggestions. Ephemeral by default
+  with a "Save as entry" button to persist valuable explanations.
+- Updated to @owenbush/decodie-core 0.3.0 (breakdowns, issues, improvements schema)
+- Fix: sidebar restores entries when re-opened after switching tabs
+- Fix: unsaved explain results are preserved when sidebar is hidden and re-opened
+- Fix: explain/analyze works on first click when sidebar was closed (message queuing)
+
 ## 0.3.0
 
 - Q&A conversations: ask questions about any entry directly in the sidebar
