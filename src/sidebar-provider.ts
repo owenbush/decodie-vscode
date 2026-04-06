@@ -26,6 +26,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _fileWatcher: vscode.FileSystemWatcher | undefined;
   private _disposables: vscode.Disposable[] = [];
   private _lastExplainResult: { result: ExplainResult; filePath: string } | null = null;
+  private _pendingMessages: unknown[] = [];
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -78,8 +79,30 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._view = undefined;
     });
 
-    // Restore state after a short delay to let the webview script load
-    setTimeout(() => this._restoreState(), 100);
+    // Restore state and flush pending messages after webview script loads
+    setTimeout(() => {
+      this._flushPendingMessages();
+      this._restoreState();
+    }, 100);
+  }
+
+  /** Post a message to the webview, queuing if the view isn't ready yet. */
+  private _postMessage(msg: unknown): void {
+    if (this._view) {
+      this._view.webview.postMessage(msg);
+    } else {
+      this._pendingMessages.push(msg);
+    }
+  }
+
+  /** Flush any queued messages (called after webview is ready). */
+  private _flushPendingMessages(): void {
+    if (this._view && this._pendingMessages.length > 0) {
+      for (const msg of this._pendingMessages) {
+        this._view.webview.postMessage(msg);
+      }
+      this._pendingMessages = [];
+    }
   }
 
   public refresh(): void {
@@ -167,21 +190,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   public showAnalyzing(filePath: string, detail?: string): void {
     // Send current data so All tab has entries while analyzing
-    if (this._view) {
-      try {
-        const index = this._parser.loadIndex();
-        const allEntries = index.entries.filter((e) => e.lifecycle === 'active');
-        this._view.webview.postMessage({
-          type: 'update',
-          currentFile: filePath,
-          currentFileEntries: [],
-          allEntries,
-        });
-      } catch {
-        // no index yet, that's fine
-      }
+    try {
+      const index = this._parser.loadIndex();
+      const allEntries = index.entries.filter((e) => e.lifecycle === 'active');
+      this._postMessage({
+        type: 'update',
+        currentFile: filePath,
+        currentFileEntries: [],
+        allEntries,
+      });
+    } catch {
+      // no index yet, that's fine
     }
-    this._view?.webview.postMessage({
+    this._postMessage({
       type: 'analyzing',
       filePath,
       detail: detail || 'Starting analysis...',
@@ -189,11 +210,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public showError(message: string): void {
-    this._view?.webview.postMessage({ type: 'error', message });
+    this._postMessage({ type: 'error', message });
   }
 
   public showExplaining(filePath: string, detail?: string): void {
-    this._view?.webview.postMessage({
+    this._postMessage({
       type: 'explaining',
       filePath,
       detail: detail || 'Starting explanation...',
@@ -202,7 +223,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   public showExplainResult(result: ExplainResult, filePath: string): void {
     this._lastExplainResult = { result, filePath };
-    this._view?.webview.postMessage({
+    this._postMessage({
       type: 'showExplain',
       result,
       filePath,
