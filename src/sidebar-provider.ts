@@ -24,6 +24,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _parser: DataParser;
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _fileWatcher: vscode.FileSystemWatcher | undefined;
+  private _disposables: vscode.Disposable[] = [];
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -31,6 +32,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     private readonly _decorationManager?: DecorationManager,
   ) {
     this._parser = new DataParser(this._workspaceRoot);
+
+    // Register editor change listener once (not per resolveWebviewView call)
+    this._disposables.push(
+      vscode.window.onDidChangeActiveTextEditor(() => this._onActiveEditorChanged()),
+    );
+
+    // File watcher registered once
+    this._fileWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(this._workspaceRoot, '.decodie/**/*.json'),
+    );
+    this._fileWatcher.onDidChange(() => this._onDecodieDataChanged());
+    this._fileWatcher.onDidCreate(() => this._onDecodieDataChanged());
+    this._fileWatcher.onDidDelete(() => this._onDecodieDataChanged());
+    this._disposables.push(this._fileWatcher);
   }
 
   public resolveWebviewView(
@@ -51,24 +66,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._handleWebviewMessage(msg);
     });
 
-    vscode.window.onDidChangeActiveTextEditor(
-      () => this._onActiveEditorChanged(),
-      null,
-    );
-
-    this._fileWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(this._workspaceRoot, '.decodie/**/*.json'),
-    );
-
-    this._fileWatcher.onDidChange(() => this._onDecodieDataChanged());
-    this._fileWatcher.onDidCreate(() => this._onDecodieDataChanged());
-    this._fileWatcher.onDidDelete(() => this._onDecodieDataChanged());
-
-    this._onActiveEditorChanged();
+    // When the webview becomes visible, send current data
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this._updateForActiveEditor();
+      }
+    });
 
     webviewView.onDidDispose(() => {
-      this._fileWatcher?.dispose();
+      this._view = undefined;
     });
+
+    // Send initial data after a short delay to let the webview script load
+    setTimeout(() => this._updateForActiveEditor(), 100);
   }
 
   public refresh(): void {
