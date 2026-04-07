@@ -366,6 +366,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     result?: ExplainResult;
     filePath?: string;
   }): void {
+    if (msg.type === 'refresh') {
+      this.refresh();
+      return;
+    }
+
     if (msg.type === 'saveExplain' && msg.result && msg.filePath) {
       this._lastExplainResult = null; // Clear cache — it's now a persisted entry
       this._saveExplainAsEntry(msg.result, msg.filePath);
@@ -584,6 +589,13 @@ body {
   border-radius: 4px; outline: none; margin-bottom: 8px;
 }
 .search-input:focus { border-color: var(--vscode-focusBorder, #0786f7); }
+
+/* Refresh link */
+.refresh-link {
+  display: inline-block; margin-top: 8px; font-size: 12px;
+  color: var(--vscode-textLink-foreground); cursor: pointer; opacity: 0.8;
+}
+.refresh-link:hover { opacity: 1; text-decoration: underline; }
 
 /* Filter bar */
 .filter-toggle {
@@ -997,7 +1009,8 @@ function renderCurrentFile() {
     var msg = state.currentFile
       ? 'No entries for ' + esc(state.currentFile)
       : 'Open a file to see related entries.';
-    content.innerHTML = '<div class="state-msg"><p>' + msg + '</p></div>';
+    content.innerHTML = '<div class="state-msg"><p>' + msg + '</p>' + refreshHtml() + '</div>';
+    attachRefreshHandler();
     return;
   }
 
@@ -1010,7 +1023,8 @@ function renderCurrentFile() {
 
 function renderAllEntries() {
   if (state.allEntries.length === 0) {
-    content.innerHTML = '<div class="state-msg"><p>No entries in this project.</p></div>';
+    content.innerHTML = '<div class="state-msg"><p>No entries in this project.</p>' + refreshHtml() + '</div>';
+    attachRefreshHandler();
     return;
   }
 
@@ -1125,6 +1139,19 @@ function collectValues(entries, key) {
   var seen = {};
   entries.forEach(function(e) { if (e[key]) seen[e[key]] = true; });
   return Object.keys(seen).sort();
+}
+
+function refreshHtml() {
+  return '<span class="refresh-link" id="refreshLink">Refresh</span>';
+}
+
+function attachRefreshHandler() {
+  var el = document.getElementById('refreshLink');
+  if (el) {
+    el.addEventListener('click', function() {
+      vscode.postMessage({ type: 'refresh' });
+    });
+  }
 }
 
 function attachClickHandlers() {
