@@ -574,6 +574,17 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-msg { color: var(--vscode-errorForeground, #f05252); }
 
+/* Search */
+.search-input {
+  width: 100%; padding: 6px 8px; font-size: 13px;
+  font-family: var(--vscode-font-family);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px; outline: none; margin-bottom: 8px;
+}
+.search-input:focus { border-color: var(--vscode-focusBorder, #0786f7); }
+
 /* Filter bar */
 .filter-toggle {
   font-size: 11px; cursor: pointer; opacity: 0.7; padding: 4px 0;
@@ -827,6 +838,7 @@ var currentExplain = null; // { result, filePath } or null
 var explaining = null; // { filePath, detail } while loading
 var analyzing = null; // { filePath, detail } or null
 var filters = { level: null, type: null, topic: null };
+var searchQuery = '';
 var qaConversation = []; // [{role, content, html?}]
 var qaStreaming = false;
 var qaStreamHtml = '';
@@ -1007,6 +1019,8 @@ function renderAllEntries() {
   var allLevels = collectValues(state.allEntries, 'experience_level');
   var allTypes = collectValues(state.allEntries, 'decision_type');
 
+  var searchHtml = '<input class="search-input" id="searchInput" type="text" placeholder="Search entries..." value="' + esc(searchQuery) + '">';
+
   var filterHtml = '<div class="filter-toggle" id="filterToggle">&#9662; Filters</div>' +
     '<div class="filter-bar" id="filterBar">';
 
@@ -1035,10 +1049,25 @@ function renderAllEntries() {
 
   var listHtml = filtered.map(function(e) { return renderListItem(e); }).join('');
   if (filtered.length === 0) {
-    listHtml = '<div class="state-msg"><p>No entries match filters.</p></div>';
+    var noMatchMsg = searchQuery ? 'No entries match "' + esc(searchQuery) + '".' : 'No entries match filters.';
+    listHtml = '<div class="state-msg"><p>' + noMatchMsg + '</p></div>';
   }
 
-  content.innerHTML = filterHtml + listHtml;
+  content.innerHTML = searchHtml + filterHtml + listHtml;
+
+  // Search input
+  var searchEl = document.getElementById('searchInput');
+  if (searchEl) {
+    searchEl.addEventListener('input', function() {
+      searchQuery = searchEl.value;
+      renderAllEntries();
+    });
+    // Restore focus and cursor position after re-render
+    if (searchQuery) {
+      searchEl.focus();
+      searchEl.setSelectionRange(searchQuery.length, searchQuery.length);
+    }
+  }
 
   // Filter toggle
   document.getElementById('filterToggle').addEventListener('click', function() {
@@ -1069,6 +1098,17 @@ function applyFilters(entries) {
     if (filters.level && e.experience_level !== filters.level) return false;
     if (filters.type && e.decision_type !== filters.type) return false;
     if (filters.topic && (!e.topics || e.topics.indexOf(filters.topic) === -1)) return false;
+    if (searchQuery) {
+      var q = searchQuery.toLowerCase();
+      var haystack = (
+        (e.title || '') + ' ' +
+        (e.explanation || '') + ' ' +
+        (e.code_snippet || '') + ' ' +
+        (e.topics || []).join(' ') + ' ' +
+        (e.key_concepts || []).join(' ')
+      ).toLowerCase();
+      if (haystack.indexOf(q) === -1) return false;
+    }
     return true;
   });
 }
