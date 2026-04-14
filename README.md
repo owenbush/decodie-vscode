@@ -118,6 +118,7 @@ ddev restart && ddev decodie
 | [decodie-ui](https://github.com/owenbush/decodie-ui) | Web-based browser with lessons, progress tracking, and Q&A |
 | [decodie-ddev](https://github.com/owenbush/decodie-ddev) | DDEV add-on for local development |
 | [decodie-github-action](https://github.com/owenbush/decodie-github-action) | GitHub Action for automatic PR analysis ([Marketplace](https://github.com/marketplace/actions/decodie-analyze)) |
+| [decodie-github-bot](https://github.com/owenbush/decodie-github-bot) | Interactive bot for on-demand analysis and explanations in PR comments |
 | [decodie-core](https://github.com/owenbush/decodie-core) | Shared data layer (types, parser, reference resolver) |
 | [decodie.owenbush.dev](https://decodie.owenbush.dev) | Project homepage |
 
