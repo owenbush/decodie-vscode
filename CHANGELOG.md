@@ -1,8 +1,9 @@
 # Changelog
 
-## 0.6.1
+## 0.6.2
 
 - Updated to @owenbush/decodie-core 0.4.0 (sources, verified_sha, stale lifecycle fields)
+- Add GitHub Actions workflow for publishing to VS Code Marketplace and Open VSX
 
 ## 0.6.0
 
