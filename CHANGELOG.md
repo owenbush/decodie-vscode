@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+- Updated to @owenbush/decodie-core 0.4.0 (sources, verified_sha, stale lifecycle fields)
+
+## 0.6.0
+
+- Add search to All Entries tab
+- Add Refresh link to empty states in sidebar
+- Docs: add decodie-github-action and decodie-github-bot to ecosystem table
+
 ## 0.5.0
 
 - **Decodie: Explain Selection** — right-click any code selection to get a

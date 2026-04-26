@@ -2,7 +2,7 @@
   "name": "decodie-vscode",
   "displayName": "Decodie",
   "description": "View and create Decodie learning entries directly in your editor",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "publisher": "owenbush",
   "license": "MIT",
   "icon": "resources/decodie-icon-128.png",
@@ -114,7 +114,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@anthropic-ai/sdk": "^0.52.0",
-    "@owenbush/decodie-core": "^0.3.0",
+    "@owenbush/decodie-core": "^0.4.0",
     "marked": "^17.0.5"
   },
   "devDependencies": {
