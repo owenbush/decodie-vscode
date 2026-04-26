@@ -24,7 +24,7 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
-        if: ${{ secrets.OVSX_PAT != '' }}
+        if: env.OVSX_PAT != ''
         run: npx ovsx publish --no-dependencies
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
