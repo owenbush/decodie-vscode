@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- Show stale badge on entries whose source files have changed since they were last verified by `/decodie:verify`
+- Show truncated `verified_sha` chip on the entry detail view
+
 ## 0.6.2
 
 - Updated to @owenbush/decodie-core 0.4.0 (sources, verified_sha, stale lifecycle fields)

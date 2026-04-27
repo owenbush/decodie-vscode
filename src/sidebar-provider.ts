@@ -723,6 +723,22 @@ details .section-content {
 .status-fuzzy { background: #fb923c; }
 .status-stale { background: #f05252; }
 
+.stale-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 600;
+  color: #fbbf24; background: rgba(251, 191, 36, 0.12);
+  padding: 2px 7px; border-radius: 999px;
+  margin-left: 6px;
+}
+.verified-sha {
+  display: inline-flex; align-items: center;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px; color: var(--vscode-descriptionForeground);
+  background: var(--vscode-textCodeBlock-background);
+  padding: 2px 6px; border-radius: 3px;
+  margin-left: 6px;
+}
+
 /* Q&A */
 .qa-section { margin-top: 12px; border-top: 1px solid var(--vscode-panel-border); padding-top: 10px; }
 .qa-header { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
@@ -1223,9 +1239,12 @@ function renderListItem(entry) {
     if (res.resolved_file) filePath = res.resolved_file;
   }
 
+  var staleBadge = entry.stale
+    ? '<span class="stale-badge" title="Source files have changed since this entry was verified">stale</span>' : '';
+
   return '<div class="entry-list-item" data-id="' + esc(entry.id) + '" data-file="' + esc(filePath) + '" data-line="' + line + '">' +
     '<div class="entry-list-header"><span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
-    '<span class="entry-list-title">' + esc(entry.title) + '</span></div>' +
+    '<span class="entry-list-title">' + esc(entry.title) + '</span>' + staleBadge + '</div>' +
     '<div class="entry-list-meta"><span class="decision-type">' + esc(dt) + '</span>' + topics + '</div>' +
     file + '</div>';
 }
@@ -1302,11 +1321,16 @@ function renderEntryDetail(entry) {
     '<div class="qa-error" id="qaError"></div>' +
   '</div>';
 
+  var staleBadge = entry.stale
+    ? '<span class="stale-badge" title="Source files have changed since this entry was verified">stale</span>' : '';
+  var verifiedSha = entry.verified_sha
+    ? '<span class="verified-sha" title="Verified at commit ' + esc(entry.verified_sha) + '">' + esc(entry.verified_sha.slice(0, 7)) + '</span>' : '';
+
   content.innerHTML = '<div class="entry-detail">' +
     '<div class="back-link" id="backLink">&larr; Back</div>' +
     '<div class="entry-card">' +
       '<div class="entry-header"><span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
-      '<span class="entry-title">' + esc(entry.title) + '</span></div>' +
+      '<span class="entry-title">' + esc(entry.title) + '</span>' + staleBadge + verifiedSha + '</div>' +
       '<div class="entry-meta"><span class="decision-type">' + esc(entry.decision_type || '') + '</span>' + topics + '</div>' +
       fileLinks + code + explanation + alternatives + concepts + docs +
     '</div>' +
