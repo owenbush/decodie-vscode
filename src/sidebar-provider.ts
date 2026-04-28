@@ -1291,28 +1291,23 @@ function renderEntryDetail(entry) {
   }
 
   // Overview-shape sections (populated only when entry.decision_type === 'overview').
-  // Field types are surfaced through the FullEntry index signature; narrow before use.
-  var purposeStr = typeof entry.purpose === 'string' ? entry.purpose : '';
-  var purpose = purposeStr
-    ? '<details open><summary>Purpose</summary><div class="section-content">' + esc(purposeStr) + '</div></details>' : '';
+  var purpose = entry.purpose
+    ? '<details open><summary>Purpose</summary><div class="section-content">' + esc(entry.purpose) + '</div></details>' : '';
 
-  var structureStr = typeof entry.structure === 'string' ? entry.structure : '';
-  var structure = structureStr
-    ? '<details open><summary>Structure</summary><div class="section-content">' + esc(structureStr) + '</div></details>' : '';
+  var structure = entry.structure
+    ? '<details open><summary>Structure</summary><div class="section-content">' + esc(entry.structure) + '</div></details>' : '';
 
-  var entryPointsList = Array.isArray(entry.entry_points) ? (entry.entry_points as string[]) : [];
   var entryPoints = '';
-  if (entryPointsList.length > 0) {
+  if (entry.entry_points && entry.entry_points.length > 0) {
     entryPoints = '<details open><summary>Entry Points</summary><ul class="overview-list">' +
-      entryPointsList.map(function(p) { return '<li>' + esc(p) + '</li>'; }).join('') +
+      entry.entry_points.map(function(p) { return '<li>' + esc(p) + '</li>'; }).join('') +
       '</ul></details>';
   }
 
-  var dependenciesList = Array.isArray(entry.dependencies) ? (entry.dependencies as string[]) : [];
   var dependencies = '';
-  if (dependenciesList.length > 0) {
+  if (entry.dependencies && entry.dependencies.length > 0) {
     dependencies = '<details><summary>Dependencies</summary><ul class="overview-list">' +
-      dependenciesList.map(function(d) { return '<li>' + esc(d) + '</li>'; }).join('') +
+      entry.dependencies.map(function(d) { return '<li>' + esc(d) + '</li>'; }).join('') +
       '</ul></details>';
   }
 
