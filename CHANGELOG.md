@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Render overview-shape entries (`decision_type: "overview"`) in the sidebar detail view — Purpose, Structure, Entry Points, and Dependencies sections, gated on field presence so legacy entries are unaffected
+- Search now indexes overview content (`purpose` / `structure` / `entry_points` / `dependencies`) so it surfaces in the All Entries search bar
+- Updated to `@owenbush/decodie-core` 0.5.0 (adds `OverviewSessionEntry` variant and `"overview"` to `DecisionType`)
+
 ## 0.6.3
 
 - Show stale badge on entries whose source files have changed since they were last verified by `/decodie:verify`
