@@ -1135,7 +1135,11 @@ function applyFilters(entries) {
         (e.explanation || '') + ' ' +
         (e.code_snippet || '') + ' ' +
         (e.topics || []).join(' ') + ' ' +
-        (e.key_concepts || []).join(' ')
+        (e.key_concepts || []).join(' ') + ' ' +
+        (e.purpose || '') + ' ' +
+        (e.structure || '') + ' ' +
+        (e.entry_points || []).join(' ') + ' ' +
+        (e.dependencies || []).join(' ')
       ).toLowerCase();
       if (haystack.indexOf(q) === -1) return false;
     }
@@ -1286,6 +1290,32 @@ function renderEntryDetail(entry) {
       '</div></details>';
   }
 
+  // Overview-shape sections (populated only when entry.decision_type === 'overview').
+  // Field types are surfaced through the FullEntry index signature; narrow before use.
+  var purposeStr = typeof entry.purpose === 'string' ? entry.purpose : '';
+  var purpose = purposeStr
+    ? '<details open><summary>Purpose</summary><div class="section-content">' + esc(purposeStr) + '</div></details>' : '';
+
+  var structureStr = typeof entry.structure === 'string' ? entry.structure : '';
+  var structure = structureStr
+    ? '<details open><summary>Structure</summary><div class="section-content">' + esc(structureStr) + '</div></details>' : '';
+
+  var entryPointsList = Array.isArray(entry.entry_points) ? (entry.entry_points as string[]) : [];
+  var entryPoints = '';
+  if (entryPointsList.length > 0) {
+    entryPoints = '<details open><summary>Entry Points</summary><ul class="overview-list">' +
+      entryPointsList.map(function(p) { return '<li>' + esc(p) + '</li>'; }).join('') +
+      '</ul></details>';
+  }
+
+  var dependenciesList = Array.isArray(entry.dependencies) ? (entry.dependencies as string[]) : [];
+  var dependencies = '';
+  if (dependenciesList.length > 0) {
+    dependencies = '<details><summary>Dependencies</summary><ul class="overview-list">' +
+      dependenciesList.map(function(d) { return '<li>' + esc(d) + '</li>'; }).join('') +
+      '</ul></details>';
+  }
+
   var docs = '';
   if (entry.external_docs && entry.external_docs.length > 0) {
     docs = '<div class="external-docs">' +
@@ -1332,7 +1362,7 @@ function renderEntryDetail(entry) {
       '<div class="entry-header"><span class="level-badge ' + lc + '">' + esc(ll) + '</span>' +
       '<span class="entry-title">' + esc(entry.title) + '</span>' + staleBadge + verifiedSha + '</div>' +
       '<div class="entry-meta"><span class="decision-type">' + esc(entry.decision_type || '') + '</span>' + topics + '</div>' +
-      fileLinks + code + explanation + alternatives + concepts + docs +
+      fileLinks + code + explanation + alternatives + concepts + purpose + structure + entryPoints + dependencies + docs +
     '</div>' +
     qaSection +
   '</div>';
