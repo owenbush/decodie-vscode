@@ -1,7 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import * as vscode from 'vscode';
-import { loadAuth } from './auth';
-import { resolveClaudeExecutable, extractJson, repairJson } from './analysis-engine';
+import { generateText } from 'ai';
+import { resolveProvider } from './llm/provider';
+import { extractJson, repairJson } from './analysis-engine';
 
 /** Result returned from explain — ephemeral, not persisted unless user saves */
 export interface ExplainResult {
@@ -65,10 +64,6 @@ function validateSeverity(s: string | undefined): 'info' | 'warning' | 'error' {
   return 'info';
 }
 
-/**
- * Explain code: sends to Claude and returns a structured ExplainResult.
- * Does NOT write to disk — the caller (sidebar) handles persistence on save.
- */
 export async function explainCode(params: {
   code: string;
   filePath: string;
@@ -78,69 +73,21 @@ export async function explainCode(params: {
   const { code, filePath, workspaceRoot, onProgress } = params;
 
   onProgress?.('Loading credentials...');
-  const auth = loadAuth(workspaceRoot);
+  const { model } = resolveProvider(workspaceRoot);
 
-  const vscodeConfig = vscode.workspace.getConfiguration('decodie');
-  const model = vscodeConfig.get<string>('model') || 'claude-sonnet-4-6';
-
-  onProgress?.('Explaining code with Claude...');
+  onProgress?.('Explaining code...');
   const userMessage = `Explain the following code from file \`${filePath}\`.\n\n\`\`\`\n${code}\n\`\`\``;
 
-  let responseText: string;
+  const result = await generateText({
+    model,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userMessage }],
+    maxOutputTokens: 4096,
+  });
 
-  if (auth.type === 'apikey') {
-    const client = new Anthropic({ apiKey: auth.token });
-    const response = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
-    });
-
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      throw new Error('No text response from Claude');
-    }
-    responseText = textBlock.text;
-  } else {
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    const fullPrompt = SYSTEM_PROMPT + '\n\n' + userMessage;
-
-    const claudePath = resolveClaudeExecutable();
-    if (!claudePath) {
-      throw new Error('Claude Code CLI not found. Install it from https://docs.anthropic.com/en/docs/claude-code or use an API key instead.');
-    }
-
-    const conversation = query({
-      prompt: fullPrompt,
-      options: {
-        model,
-        maxTurns: 1,
-        tools: [],
-        cwd: workspaceRoot,
-        pathToClaudeCodeExecutable: claudePath,
-        env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: auth.token },
-      },
-    });
-
-    let collected = '';
-    for await (const message of conversation) {
-      if (message.type === 'assistant' && message.message) {
-        const content = message.message.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text' && block.text) {
-              collected += block.text;
-            }
-          }
-        }
-      }
-    }
-
-    if (!collected) {
-      throw new Error('No response from Claude');
-    }
-    responseText = collected;
+  const responseText = result.text;
+  if (!responseText) {
+    throw new Error('No response from LLM');
   }
 
   onProgress?.('Processing results...');
@@ -154,12 +101,12 @@ export async function explainCode(params: {
       parsed = JSON.parse(repairJson(jsonText));
     } catch {
       console.error('Decodie: Failed to parse explain response. Raw text:', responseText.slice(0, 500));
-      throw new Error('Failed to parse Claude response as JSON');
+      throw new Error('Failed to parse LLM response as JSON');
     }
   }
 
   if (!parsed.title || !parsed.summary) {
-    throw new Error('Claude response missing required fields (title or summary)');
+    throw new Error('LLM response missing required fields (title or summary)');
   }
 
   const breakdowns = (parsed.breakdowns || [])

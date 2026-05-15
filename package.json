@@ -2,7 +2,7 @@
   "name": "decodie-vscode",
   "displayName": "Decodie",
   "description": "View and create Decodie learning entries directly in your editor",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "publisher": "owenbush",
   "license": "MIT",
   "icon": "resources/decodie-icon-128.png",
@@ -15,7 +15,10 @@
     "documentation",
     "code-analysis",
     "AI",
-    "Claude"
+    "Claude",
+    "OpenAI",
+    "Gemini",
+    "LLM"
   ],
   "repository": {
     "type": "git",
@@ -95,12 +98,13 @@
         "decodie.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Anthropic API key (fallback if .decodie/.env not found)"
+          "description": "API key (deprecated — prefer setting provider-specific keys in .decodie/.env)",
+          "markdownDeprecationMessage": "Set provider-specific keys like `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in `.decodie/.env` instead."
         },
         "decodie.model": {
           "type": "string",
-          "default": "claude-sonnet-4-6",
-          "description": "Claude model to use for analysis"
+          "default": "",
+          "description": "LLM model name. Leave empty to use provider default."
         }
       }
     }
@@ -112,9 +116,13 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.76",
-    "@anthropic-ai/sdk": "^0.52.0",
-    "@owenbush/decodie-core": "^0.5.0",
+    "@ai-sdk/anthropic": "^3.0.77",
+    "@ai-sdk/google": "^3.0.73",
+    "@ai-sdk/mistral": "^3.0.37",
+    "@ai-sdk/openai": "^3.0.63",
+    "@ai-sdk/xai": "^3.0.90",
+    "@owenbush/decodie-core": "^1.0.0",
+    "ai": "^6.0.182",
     "marked": "^17.0.5"
   },
   "devDependencies": {
