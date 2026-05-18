@@ -165,13 +165,10 @@ export async function analyzeCode(params: {
 
   onProgress?.('Loading credentials...');
   const { model } = resolveProvider(workspaceRoot);
-
   const parser = new DataParser(workspaceRoot);
-  const config = parser.loadConfig();
-  const userLevel = config.user_experience_level;
 
   onProgress?.('Analyzing code...');
-  const userMessage = `Analyze the following code from file \`${filePath}\`. The developer's experience level is "${userLevel}".\n\n\`\`\`\n${code}\n\`\`\``;
+  const userMessage = `Analyze the following code from file \`${filePath}\`.\n\n\`\`\`\n${code}\n\`\`\``;
 
   const result = await generateText({
     model,
