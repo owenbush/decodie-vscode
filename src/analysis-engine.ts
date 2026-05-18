@@ -1,35 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import * as child_process from 'child_process';
-import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
+import { generateText } from 'ai';
 import { DataParser, IndexEntry, SessionEntry, SessionFile } from '@owenbush/decodie-core';
-import { loadAuth } from './auth';
-
-/**
- * Resolve the path to the Claude Code CLI executable.
- */
-export function resolveClaudeExecutable(): string | undefined {
-  try {
-    const result = child_process.execSync('which claude', { encoding: 'utf-8' }).trim();
-    if (result && fs.existsSync(result)) {
-      return result;
-    }
-  } catch {
-    // not found in PATH
-  }
-  const candidates = [
-    path.join(process.env.HOME || '', '.local', 'bin', 'claude'),
-    '/usr/local/bin/claude',
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      return c;
-    }
-  }
-  return undefined;
-}
+import { resolveProvider } from './llm/provider';
 
 /** Entry returned from analysis before writing to disk */
 export interface GeneratedEntry {
@@ -50,7 +25,7 @@ export interface GeneratedEntry {
  * Determine the next session ID for today: analyze-YYYY-MM-DD-NNN
  */
 function nextSessionId(workspaceRoot: string): string {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const today = new Date().toISOString().slice(0, 10);
   const prefix = `analyze-${today}-`;
   const sessionsDir = path.join(workspaceRoot, '.decodie', 'sessions');
 
@@ -58,7 +33,7 @@ function nextSessionId(workspaceRoot: string): string {
   if (fs.existsSync(sessionsDir)) {
     for (const file of fs.readdirSync(sessionsDir)) {
       if (file.startsWith(prefix) && file.endsWith('.json')) {
-        const numStr = file.slice(prefix.length, -5); // strip prefix and .json
+        const numStr = file.slice(prefix.length, -5);
         const num = parseInt(numStr, 10);
         if (!isNaN(num) && num > maxN) {
           maxN = num;
@@ -71,18 +46,12 @@ function nextSessionId(workspaceRoot: string): string {
   return `${prefix}${next}`;
 }
 
-/**
- * Generate a unique entry ID: entry-{unix-timestamp}-{random-4-hex}
- */
 function generateEntryId(): string {
   const ts = Math.floor(Date.now() / 1000);
   const rand = crypto.randomBytes(2).toString('hex');
   return `entry-${ts}-${rand}`;
 }
 
-/**
- * Compute anchor hash: first 8 hex chars of SHA-256 of anchor text.
- */
 function anchorHash(anchor: string): string {
   return crypto.createHash('sha256').update(anchor).digest('hex').slice(0, 8);
 }
@@ -93,16 +62,13 @@ function anchorHash(anchor: string): string {
 export function repairJson(text: string): string {
   let s = text.trim();
 
-  // Remove trailing comma
   s = s.replace(/,\s*$/, '');
 
-  // Close any open string (find last unescaped quote)
   const quoteCount = (s.match(/(?<!\\)"/g) || []).length;
   if (quoteCount % 2 !== 0) {
     s += '"';
   }
 
-  // Count open braces/brackets and close them
   let braces = 0;
   let brackets = 0;
   let inString = false;
@@ -118,10 +84,8 @@ export function repairJson(text: string): string {
     }
   }
 
-  // Remove any trailing partial key-value (ends with "key": or "key": "partial)
   s = s.replace(/,?\s*"[^"]*":\s*"?[^"{}[\]]*$/, '');
 
-  // Recount after cleanup
   braces = 0;
   brackets = 0;
   inString = false;
@@ -147,19 +111,16 @@ export function repairJson(text: string): string {
  * Extract JSON from a response that may contain markdown fences or surrounding text.
  */
 export function extractJson(text: string): string {
-  // Try raw text first
   const trimmed = text.trim();
   if (trimmed.startsWith('{')) {
     return trimmed;
   }
 
-  // Try extracting from markdown code fences
   const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) {
     return fenceMatch[1].trim();
   }
 
-  // Try finding the first { to last }
   const firstBrace = trimmed.indexOf('{');
   const lastBrace = trimmed.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace > firstBrace) {
@@ -194,9 +155,6 @@ interface RawAnalysisEntry {
   external_docs: { label: string; url: string }[];
 }
 
-/**
- * Main analysis function: sends code to Claude and writes structured entries.
- */
 export async function analyzeCode(params: {
   code: string;
   filePath: string;
@@ -205,83 +163,25 @@ export async function analyzeCode(params: {
 }): Promise<GeneratedEntry[]> {
   const { code, filePath, workspaceRoot, onProgress } = params;
 
-  // 1. Load auth
   onProgress?.('Loading credentials...');
-  const auth = loadAuth(workspaceRoot);
-
-  // 2. Load config for user experience level
+  const { model } = resolveProvider(workspaceRoot);
   const parser = new DataParser(workspaceRoot);
-  const config = parser.loadConfig();
-  const userLevel = config.user_experience_level;
 
-  // 3. Get model from settings
-  const vscodeConfig = vscode.workspace.getConfiguration('decodie');
-  const model = vscodeConfig.get<string>('model') || 'claude-sonnet-4-6';
+  onProgress?.('Analyzing code...');
+  const userMessage = `Analyze the following code from file \`${filePath}\`.\n\n\`\`\`\n${code}\n\`\`\``;
 
-  // 4. Send request to Claude
-  onProgress?.('Analyzing code with Claude...');
-  const userMessage = `Analyze the following code from file \`${filePath}\`. The developer's experience level is "${userLevel}".\n\n\`\`\`\n${code}\n\`\`\``;
+  const result = await generateText({
+    model,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userMessage }],
+    maxOutputTokens: 4096,
+  });
 
-  let responseText: string;
-
-  if (auth.type === 'apikey') {
-    // Use Anthropic SDK directly for API keys
-    const client = new Anthropic({ apiKey: auth.token });
-    const response = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
-    });
-
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      throw new Error('No text response from Claude');
-    }
-    responseText = textBlock.text;
-  } else {
-    // Use Claude Agent SDK for OAuth tokens (same as decodie-ui)
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    const fullPrompt = SYSTEM_PROMPT + '\n\n' + userMessage;
-
-    const claudePath = resolveClaudeExecutable();
-    if (!claudePath) {
-      throw new Error('Claude Code CLI not found. Install it from https://docs.anthropic.com/en/docs/claude-code or use an API key instead.');
-    }
-
-    const conversation = query({
-      prompt: fullPrompt,
-      options: {
-        model,
-        maxTurns: 1,
-        tools: [],
-        cwd: workspaceRoot,
-        pathToClaudeCodeExecutable: claudePath,
-        env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: auth.token },
-      },
-    });
-
-    let collected = '';
-    for await (const message of conversation) {
-      if (message.type === 'assistant' && message.message) {
-        const content = message.message.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text' && block.text) {
-              collected += block.text;
-            }
-          }
-        }
-      }
-    }
-
-    if (!collected) {
-      throw new Error('No response from Claude');
-    }
-    responseText = collected;
+  const responseText = result.text;
+  if (!responseText) {
+    throw new Error('No response from LLM');
   }
 
-  // 5. Parse response
   onProgress?.('Processing results...');
 
   let parsed: { entries: RawAnalysisEntry[] };
@@ -289,30 +189,26 @@ export async function analyzeCode(params: {
   try {
     parsed = JSON.parse(jsonText);
   } catch {
-    // Response may be truncated — try to repair by closing open strings/objects
     try {
       parsed = JSON.parse(repairJson(jsonText));
     } catch {
       console.error('Decodie: Failed to parse response. Raw text:', responseText.slice(0, 500));
-      throw new Error('Failed to parse Claude response as JSON');
+      throw new Error('Failed to parse LLM response as JSON');
     }
   }
 
   if (!parsed.entries || !Array.isArray(parsed.entries)) {
-    throw new Error('Claude response missing "entries" array');
+    throw new Error('LLM response missing "entries" array');
   }
 
-  // Filter out incomplete entries (from truncated responses)
   parsed.entries = parsed.entries.filter((e) => e.title && e.explanation);
 
-  // 7. Generate entry IDs and compute anchor hashes
   const sessionId = nextSessionId(workspaceRoot);
   const now = new Date().toISOString();
 
   const generatedEntries: GeneratedEntry[] = parsed.entries.map((raw) => {
     const id = generateEntryId();
 
-    // Recompute anchor hashes to ensure correctness
     const references = (raw.references || []).map((ref) => ({
       file: ref.file || filePath,
       anchor: ref.anchor,
@@ -334,7 +230,6 @@ export async function analyzeCode(params: {
     };
   });
 
-  // 8. Write session file
   onProgress?.('Writing entries...');
   const sessionsDir = path.join(workspaceRoot, '.decodie', 'sessions');
   if (!fs.existsSync(sessionsDir)) {
@@ -361,7 +256,6 @@ export async function analyzeCode(params: {
   const sessionPath = path.join(sessionsDir, `${sessionId}.json`);
   fs.writeFileSync(sessionPath, JSON.stringify(sessionFile, null, 2) + '\n', 'utf-8');
 
-  // 9. Update index.json atomically
   const indexPath = path.join(workspaceRoot, '.decodie', 'index.json');
   let index: { version: string; project: string; entries: IndexEntry[] };
 
@@ -370,7 +264,6 @@ export async function analyzeCode(params: {
     const loaded = parser.loadIndex();
     index = { version: loaded.version, project: loaded.project, entries: [...loaded.entries] };
   } catch {
-    // If index doesn't exist yet, create a minimal one
     const projectName = path.basename(workspaceRoot);
     index = { version: '1.0', project: projectName, entries: [] };
   }
@@ -393,7 +286,6 @@ export async function analyzeCode(params: {
 
   index.entries.push(...newIndexEntries);
 
-  // Atomic write: write to .tmp, then rename
   const tmpPath = indexPath + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(index, null, 2) + '\n', 'utf-8');
   fs.renameSync(tmpPath, indexPath);
