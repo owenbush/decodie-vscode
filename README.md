@@ -17,7 +17,7 @@ Each entry displays:
 - Reference resolution status
 
 ### Right-Click Analysis
-Highlight code or right-click a file to analyze it with Claude. New Decodie entries are generated and immediately appear in the sidebar.
+Highlight code or right-click a file to analyze it with your configured LLM. New Decodie entries are generated and immediately appear in the sidebar.
 
 ### Gutter Indicators
 Lines with associated Decodie entries show subtle gutter markers. Hover to see the entry title.
@@ -35,31 +35,29 @@ Install from the [VSCode Marketplace](https://marketplace.visualstudio.com/items
 
 ### 2. Set up API credentials
 
-The extension uses Claude to analyze code. You need one of the following:
+The extension supports multiple LLM providers. Add an API key for your preferred provider to `.decodie/.env` in your project root:
 
-**Option A: API key** (pay-per-token from [console.anthropic.com](https://console.anthropic.com/))
+| Provider | Env variable | Get a key |
+|----------|-------------|-----------|
+| Anthropic (Claude) | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| OpenAI | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/api-keys) |
+| Google (Gemini) | `GOOGLE_GENERATIVE_AI_API_KEY` | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| Mistral | `MISTRAL_API_KEY` | [console.mistral.ai](https://console.mistral.ai/api-keys) |
+| xAI (Grok) | `XAI_API_KEY` | [console.x.ai](https://console.x.ai) |
+| DeepSeek | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 
-Create a `.decodie/.env` file in your project root:
 ```env
-CLAUDE_API_KEY=sk-ant-api03-...
+# .decodie/.env — pick one provider
+ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-**Option B: OAuth token** (uses your Claude Pro/Max subscription)
-
-This requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to be installed. Run `claude setup-token` to generate a long-lived token, then add it to `.decodie/.env`:
-```env
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-```
-
-**Option C: VSCode settings** (API key only)
-
-Set `decodie.apiKey` in your VSCode settings as a fallback if you prefer not to use a `.env` file.
+The extension auto-detects which provider to use based on which key is present. To override the default model, add `LLM_MODEL=your-model-id` to the same file.
 
 ### 3. Analyze your first file
 
 1. Open a project in VSCode
 2. Right-click any source file in the explorer and select **Decodie: Analyze File**
-3. The sidebar opens with a spinner while Claude analyzes the code
+3. The sidebar opens with a spinner while the code is analyzed
 4. When complete, entries appear in the sidebar — click any entry to see the full detail
 
 That's it! The extension creates a `.decodie/` directory in your project with structured JSON entries. You can analyze more files, or highlight specific code and use **Decodie: Analyze Selection**.
@@ -107,8 +105,8 @@ ddev restart && ddev decodie
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `decodie.apiKey` | `""` | Anthropic API key (fallback if `.decodie/.env` not found) |
-| `decodie.model` | `claude-sonnet-4-6` | Claude model to use for analysis |
+| `decodie.apiKey` | `""` | API key (deprecated — prefer provider-specific keys in `.decodie/.env`) |
+| `decodie.model` | `""` | LLM model name. Leave empty to use the provider's default. |
 
 ## The Decodie Ecosystem
 
