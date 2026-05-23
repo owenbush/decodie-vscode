@@ -6,6 +6,7 @@ import { DecorationManager } from './decoration-manager';
 import { DecodieCodeLensProvider } from './codelens-provider';
 import { analyzeCode } from './analysis-engine';
 import { explainCode } from './explain-engine';
+import { generateOverview } from './overview-engine';
 
 export function activate(context: vscode.ExtensionContext) {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -127,6 +128,53 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       await runAnalysis(code, filePath, workspaceRoot, sidebarProvider, codeLensProvider);
+    }),
+
+    vscode.commands.registerCommand('decodie.generateOverview', async (...args: unknown[]) => {
+      const uri = args[0] instanceof vscode.Uri ? args[0] : undefined;
+      let target: string;
+      let scope: 'file' | 'directory' | 'project';
+
+      if (uri) {
+        const stat = fs.statSync(uri.fsPath);
+        target = path.relative(workspaceRoot, uri.fsPath);
+        scope = stat.isDirectory() ? 'directory' : 'file';
+      } else {
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+          target = path.relative(workspaceRoot, editor.document.uri.fsPath);
+          scope = 'file';
+        } else {
+          target = '.';
+          scope = 'project';
+        }
+      }
+
+      await vscode.commands.executeCommand('decodie.sidebar.focus');
+      sidebarProvider.showAnalyzing(target);
+
+      try {
+        const entry = await generateOverview({
+          target,
+          scope,
+          workspaceRoot,
+          onProgress: (msg: string) => {
+            sidebarProvider.showAnalyzing(target, msg);
+          },
+        });
+
+        const label = entry.regenerated ? 'Regenerated' : 'Created';
+        vscode.window.showInformationMessage(`Decodie: ${label} overview for ${target}`);
+        sidebarProvider.refresh();
+        codeLensProvider.refresh();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof Error && err.stack) {
+          console.error('Decodie overview error:', err.stack);
+        }
+        sidebarProvider.showError(message);
+        vscode.window.showErrorMessage(`Decodie: ${message}`);
+      }
     }),
   );
 }
