@@ -257,10 +257,7 @@ export async function generateOverview(params: {
       {
         id: entryId,
         title: overviewEntry.title,
-        code_snippet: '',
-        explanation: '',
-        alternatives_considered: '',
-        key_concepts: [],
+        decision_type: 'overview',
         purpose: parsed.purpose,
         structure: parsed.structure,
         entry_points: parsed.entry_points,
