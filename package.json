@@ -2,7 +2,7 @@
   "name": "decodie-vscode",
   "displayName": "Decodie",
   "description": "View and create Decodie learning entries directly in your editor",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "owenbush",
   "license": "MIT",
   "icon": "resources/decodie-icon-128.png",
@@ -66,6 +66,10 @@
       {
         "command": "decodie.explainSelection",
         "title": "Decodie: Explain Selection"
+      },
+      {
+        "command": "decodie.generateOverview",
+        "title": "Decodie: Generate Overview"
       }
     ],
     "menus": {
@@ -88,6 +92,10 @@
       "explorer/context": [
         {
           "command": "decodie.analyzeFile",
+          "group": "decodie"
+        },
+        {
+          "command": "decodie.generateOverview",
           "group": "decodie"
         }
       ]
@@ -121,7 +129,7 @@
     "@ai-sdk/mistral": "^3.0.37",
     "@ai-sdk/openai": "^3.0.63",
     "@ai-sdk/xai": "^3.0.90",
-    "@owenbush/decodie-core": "^1.0.0",
+    "@owenbush/decodie-core": "^1.1.0",
     "ai": "^6.0.182",
     "marked": "^17.0.5"
   },
