@@ -1201,8 +1201,9 @@ function attachClickHandlers() {
 }
 
 function esc(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if (!str && str !== 0) return '';
+  var s = String(str);
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 /* Simple syntax highlighter — uses RegExp() strings to avoid issues with
