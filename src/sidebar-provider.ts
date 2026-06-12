@@ -115,7 +115,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._updateForActiveEditor();
     // If there's an unsaved explain result, re-show it
     if (this._lastExplainResult) {
-      this._view?.webview.postMessage({
+      this._postMessage({
         type: 'showExplain',
         result: this._lastExplainResult.result,
         filePath: this._lastExplainResult.filePath,
@@ -133,7 +133,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         ...turn,
         html: turn.role === 'assistant' ? renderMarkdown(turn.content) : undefined,
       }));
-      this._view?.webview.postMessage({
+      this._postMessage({
         type: 'showEntry',
         entry: fullEntry,
         conversation: renderedConvo,
@@ -390,7 +390,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             html: turn.role === 'assistant' ? renderMarkdown(turn.content) : undefined,
           }));
 
-          this._view?.webview.postMessage({
+          this._postMessage({
             type: 'showEntry',
             entry: fullEntry,
             conversation: renderedConvo,
