@@ -26,7 +26,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _fileWatcher: vscode.FileSystemWatcher | undefined;
   private _disposables: vscode.Disposable[] = [];
   private _lastExplainResult: { result: ExplainResult; filePath: string } | null = null;
+  private _lastEntryId: string | null = null;
   private _pendingMessages: unknown[] = [];
+  private _webviewReady = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -62,13 +64,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this._extensionUri],
     };
 
+    this._webviewReady = false;
     webviewView.webview.html = this._getHtml();
 
     webviewView.webview.onDidReceiveMessage((msg) => {
       this._handleWebviewMessage(msg);
     });
 
-    // When the webview becomes visible, restore state
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         this._restoreState();
@@ -77,18 +79,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.onDidDispose(() => {
       this._view = undefined;
+      this._webviewReady = false;
     });
-
-    // Restore state and flush pending messages after webview script loads
-    setTimeout(() => {
-      this._flushPendingMessages();
-      this._restoreState();
-    }, 100);
   }
 
   /** Post a message to the webview, queuing if the view isn't ready yet. */
   private _postMessage(msg: unknown): void {
-    if (this._view) {
+    if (this._view && this._webviewReady) {
       this._view.webview.postMessage(msg);
     } else {
       this._pendingMessages.push(msg);
@@ -113,13 +110,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   /** Restore the sidebar to its previous state (unsaved explain or file entries). */
   private _restoreState(): void {
     this._updateForActiveEditor();
-    // If there's an unsaved explain result, re-show it
     if (this._lastExplainResult) {
       this._postMessage({
         type: 'showExplain',
         result: this._lastExplainResult.result,
         filePath: this._lastExplainResult.filePath,
       });
+    } else if (this._lastEntryId) {
+      this.showEntryById(this._lastEntryId);
     }
   }
 
@@ -133,6 +131,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         ...turn,
         html: turn.role === 'assistant' ? renderMarkdown(turn.content) : undefined,
       }));
+      this._lastEntryId = entryId;
       this._postMessage({
         type: 'showEntry',
         entry: fullEntry,
@@ -366,6 +365,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     result?: ExplainResult;
     filePath?: string;
   }): void {
+    if (msg.type === 'ready') {
+      this._webviewReady = true;
+      this._flushPendingMessages();
+      this._restoreState();
+      return;
+    }
+
     if (msg.type === 'refresh') {
       this.refresh();
       return;
@@ -377,19 +383,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    if (msg.type === 'closeEntry') {
+      this._lastEntryId = null;
+      return;
+    }
+
     if (msg.type === 'openEntry') {
       if (msg.entryId) {
         try {
           this._parser.invalidateCache();
           const fullEntry = this._parser.getEntryWithContent(msg.entryId);
 
-          // Load saved conversation and pre-render markdown
           const savedConvo = loadConversation(this._workspaceRoot, msg.entryId);
           const renderedConvo = savedConvo.map((turn) => ({
             ...turn,
             html: turn.role === 'assistant' ? renderMarkdown(turn.content) : undefined,
           }));
 
+          this._lastEntryId = msg.entryId;
           this._postMessage({
             type: 'showEntry',
             entry: fullEntry,
@@ -1363,6 +1374,7 @@ function renderEntryDetail(entry) {
   '</div>';
 
   document.getElementById('backLink').addEventListener('click', function() {
+    vscode.postMessage({ type: 'closeEntry' });
     setTab(previousTab);
   });
 
@@ -1495,6 +1507,8 @@ window.addEventListener('message', function(event) {
       break;
   }
 });
+
+vscode.postMessage({ type: 'ready' });
 </script>
 </body>
 </html>`;
