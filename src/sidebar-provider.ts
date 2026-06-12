@@ -896,6 +896,7 @@ function setTab(tab) {
 }
 
 function render() {
+  try {
   if (activeTab === 'entry') {
     if (explaining && !currentExplain) {
       content.innerHTML = '<div class="state-msg"><div class="spinner"></div>' +
@@ -918,6 +919,9 @@ function render() {
     renderCurrentFile();
   } else {
     renderAllEntries();
+  }
+  } catch (e) {
+    content.innerHTML = '<div class="state-msg error-msg"><p>Render error: ' + esc(String(e)) + '</p></div>';
   }
 }
 
@@ -1273,7 +1277,7 @@ function renderEntryDetail(entry) {
   var fileLinks = '';
   if (entry.reference_resolutions && entry.reference_resolutions.length > 0) {
     fileLinks = entry.reference_resolutions.map(function(r) {
-      var loc = r.resolved_file || r.reference.file;
+      var loc = r.resolved_file || (r.reference && r.reference.file) || '';
       var line = r.resolved_line || 0;
       var label = loc + (line ? ':' + line : '');
       return '<div class="entry-file-link" data-file="' + esc(loc) + '" data-line="' + line + '">' +
