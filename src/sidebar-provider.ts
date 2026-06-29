@@ -1303,10 +1303,10 @@ function renderEntryDetail(entry) {
         entry.alternatives_considered.map(function(a) {
           if (typeof a === 'string') return '<li>' + esc(a) + '</li>';
           if (a && typeof a === 'object') {
-            var t = a.option || a.alternative || a.title || a.name || '';
-            var r = a.reason || a.rationale || a.description || a.why || '';
-            if (t || r) return '<li>' + (t ? '<strong>' + esc(t) + '</strong>' : '') + (t && r ? ' — ' : '') + (r ? esc(r) : '') + '</li>';
-            return '<li>' + esc(JSON.stringify(a)) + '</li>';
+            var t = a.option || a.alternative || a.approach || a.title || a.name || '';
+            var r = a.reason || a.rationale || a.trade_off || a.tradeoff || a.description || a.why || '';
+            if (!t && !r) { var ks = Object.keys(a); if (ks.length >= 2) { t = String(a[ks[0]]); r = String(a[ks[1]]); } else if (ks.length === 1) { t = String(a[ks[0]]); } }
+            return '<li>' + (t ? '<strong>' + esc(t) + '</strong>' : '') + (t && r ? ' — ' : '') + (r ? esc(r) : '') + '</li>';
           }
           return '';
         }).join('') + '</ul></details>';
