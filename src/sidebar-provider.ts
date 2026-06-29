@@ -1296,8 +1296,24 @@ function renderEntryDetail(entry) {
   var explanation = entry.explanation
     ? '<details open><summary>Explanation</summary><div class="section-content">' + esc(entry.explanation) + '</div></details>' : '';
 
-  var alternatives = entry.alternatives_considered
-    ? '<details><summary>Alternatives</summary><div class="section-content">' + esc(entry.alternatives_considered) + '</div></details>' : '';
+  var alternatives = '';
+  if (entry.alternatives_considered) {
+    if (Array.isArray(entry.alternatives_considered)) {
+      alternatives = '<details><summary>Alternatives</summary><ul class="section-content" style="margin:0;padding-left:1.2em;">' +
+        entry.alternatives_considered.map(function(a) {
+          if (typeof a === 'string') return '<li>' + esc(a) + '</li>';
+          if (a && typeof a === 'object') {
+            var t = a.option || a.alternative || a.title || a.name || '';
+            var r = a.reason || a.rationale || a.description || a.why || '';
+            if (t || r) return '<li>' + (t ? '<strong>' + esc(t) + '</strong>' : '') + (t && r ? ' — ' : '') + (r ? esc(r) : '') + '</li>';
+            return '<li>' + esc(JSON.stringify(a)) + '</li>';
+          }
+          return '';
+        }).join('') + '</ul></details>';
+    } else {
+      alternatives = '<details><summary>Alternatives</summary><div class="section-content">' + esc(entry.alternatives_considered) + '</div></details>';
+    }
+  }
 
   var concepts = '';
   if (entry.key_concepts && entry.key_concepts.length > 0) {
@@ -1331,7 +1347,8 @@ function renderEntryDetail(entry) {
   if (entry.external_docs && entry.external_docs.length > 0) {
     docs = '<div class="external-docs">' +
       entry.external_docs.map(function(d) {
-        return '<span class="doc-link">&#x1F4CE; <a href="' + esc(d.url) + '">' + esc(d.label) + '</a></span>';
+        var dl = d.label || d.title || d.name || d.url || '';
+        return '<span class="doc-link">&#x1F4CE; <a href="' + esc(d.url) + '">' + esc(dl) + '</a></span>';
       }).join('') + '</div>';
   }
 
